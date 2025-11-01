@@ -59,10 +59,14 @@ steps:
 
 <!-- markdownlint-disable MD013 -->
 
-| Variable Name | Description                                  | Required | Default            |
-| ------------- | -------------------------------------------- | -------- | ------------------ |
-| debug         | Enable debug mode for verbose output         | No       | false              |
-| github_token  | GitHub token for API access (changed files)  | No       | ${{ github.token }} |
+| Variable Name      | Description                                        | Required | Default            |
+| ------------------ | -------------------------------------------------- | -------- | ------------------ |
+| debug              | Enable debug mode for verbose output               | No       | false              |
+| github_token       | GitHub token for API access (changed files)        | No       | ${{ github.token }} |
+| generate_summary   | Generate summary in GITHUB_STEP_SUMMARY            | No       | false              |
+| artifact_upload    | Upload metadata as workflow artifact               | No       | true               |
+| change_detection   | Changed files detection method: 'git' or 'github_api' | No    | (auto)             |
+| git_fetch_depth    | Depth for git fetch --deepen in shallow clones     | No       | 15                 |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -172,6 +176,17 @@ steps:
 
 <!-- markdownlint-enable MD013 -->
 
+### Artifact Outputs
+
+<!-- markdownlint-disable MD013 -->
+
+| Variable Name   | Description                                        |
+| --------------- | -------------------------------------------------- |
+| artifact_path   | Path to the metadata artifact files (if uploaded) |
+| artifact_suffix | Unique 4-character alphanumeric suffix for artifact naming |
+
+<!-- markdownlint-enable MD013 -->
+
 **Note**: Changed files detection requires checking out the repository
 with git history. For pull requests, it works best with the `github_token`
 input provided.
@@ -239,6 +254,93 @@ The JSON output contains all metadata in a structured format:
   }
 }
 ```
+
+## Artifact Upload
+
+By default, the action uploads metadata as a workflow artifact. Each invocation
+generates a unique artifact name to avoid conflicts when calling the action
+more than once in the same workflow.
+
+**Artifact Naming Format**: `repository-metadata-<job-name>-<suffix>`
+
+Where `<suffix>` is a randomly generated 4-character alphanumeric string
+(e.g., `a3f9`, `x2k5`).
+
+**Examples**:
+
+- `repository-metadata-tests-a3f9`
+- `repository-metadata-build-x2k5`
+- `repository-metadata-deploy-7n4m`
+
+The artifact contains:
+
+- `metadata.json` - Compact JSON format
+- `metadata-pretty.json` - Pretty-printed JSON for human readability
+
+To disable artifact upload:
+
+```yaml
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    artifact_upload: false
+```
+
+## Changed Files Detection
+
+The action supports two methods for detecting changed files in pull requests:
+
+### Automatic (Default)
+
+When you provide `github_token`, the action uses the GitHub API. Otherwise,
+it falls back to git-based detection.
+
+### Explicit Method Selection
+
+You can force a specific detection method using the `change_detection` input:
+
+**Git-based detection** (works offline, requires git history):
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0  # Required for git-based detection
+
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    change_detection: git
+```
+
+**GitHub API-based detection** (requires token):
+
+```yaml
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    change_detection: github_api
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The action automatically handles shallow clones by fetching the base branch
+when needed for accurate file change detection.
+
+### Git Fetch Depth Configuration
+
+When using git-based detection with shallow clones, the action may need to
+fetch more history to find the common ancestor between the PR branch
+and the base branch. You can configure the fetch depth:
+
+```yaml
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    change_detection: git
+    git_fetch_depth: 15  # Default: 15 commits
+```
+
+**When to adjust**:
+
+- **Increase** (e.g., 30-50) if you have PRs with more than 15 commits
+- **Decrease** (e.g., 5-10) for faster fetches if PRs are typically small
+- Most PRs have fewer than 15 commits, making the default appropriate for
+  most use cases
 
 ## Advanced Examples
 

@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0  # Required for changed files detection
 
-      - name: 'Test repository metadata action'
+      - name: 'Test repository metadata action (with GitHub API)'
         id: metadata
         uses: ./
         with:
@@ -154,6 +154,59 @@ jobs:
           {
             echo ''
             echo '## ✅ All tests passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+      - name: 'Test repository metadata action (with Git detection)'
+        id: metadata-git
+        uses: ./
+        with:
+          debug: true
+          change_detection: git
+          generate_summary: false
+
+      - name: 'Validate Git fallback outputs'
+        shell: bash
+        # yamllint disable rule:line-length
+        run: |
+          # Validate that Git detection produced results
+          {
+            echo '## Git Detection Test'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Validate basic outputs still work
+          expected_owner="${GITHUB_REPOSITORY_OWNER}"
+          actual_owner="${{ steps.metadata-git.outputs.repository_owner }}"
+
+          if [ "$actual_owner" != "$expected_owner" ]; then
+            {
+              echo "❌ Git detection: owner mismatch"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Git detection: Owner matches: $expected_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Validate commit SHA
+          expected_sha="$GITHUB_SHA"
+          actual_sha="${{ steps.metadata-git.outputs.commit_sha }}"
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            {
+              echo "❌ Git detection: SHA mismatch"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Git detection: SHA matches"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo ''
+            echo '✅ Git detection test passed'
           } >> "$GITHUB_STEP_SUMMARY"
         # yamllint enable rule:line-length
 
