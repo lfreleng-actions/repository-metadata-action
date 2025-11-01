@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0  # Required for changed files detection
 
-      - name: 'Test repository metadata action'
+      - name: 'Test repository metadata action (with GitHub API)'
         id: metadata
         uses: ./
         with:
@@ -53,6 +53,7 @@ jobs:
         shell: bash
         env:
           METADATA_JSON: ${{ steps.metadata.outputs.metadata_json }}
+          METADATA_YAML: ${{ steps.metadata.outputs.metadata_yaml }}
         # yamllint disable rule:line-length
         run: |
           # Validate repository metadata outputs
@@ -85,6 +86,50 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
+          fi
+
+          # Validate YAML output
+          if [ -z "$METADATA_YAML" ]; then
+            {
+              echo '### 📄 YAML Output Validation'
+              echo '❌ metadata_yaml output is empty'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            # Validate YAML is parseable
+            if echo "$METADATA_YAML" | yq eval . > /dev/null 2>&1; then
+              {
+                echo '### 📄 YAML Output Validation'
+                echo '✅ metadata_yaml populated'
+                echo '✅ metadata_yaml is valid YAML'
+                echo ''
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo '### 📄 YAML Output Validation'
+                echo '✅ metadata_yaml populated'
+                echo '❌ metadata_yaml is not valid YAML'
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+
+          # Validate JSON and YAML contain same data
+          json_owner=$(echo "$METADATA_JSON" | jq -r '.repository.owner')
+          yaml_owner=$(echo "$METADATA_YAML" | yq eval '.repository.owner' -)
+
+          if [ "$json_owner" != "$yaml_owner" ]; then
+            {
+              echo '### 🔄 Format Consistency Validation'
+              echo "❌ JSON/YAML mismatch: JSON owner=$json_owner, YAML owner=$yaml_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo '### 🔄 Format Consistency Validation'
+              echo '✅ JSON and YAML contain consistent data'
+              echo ''
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
           # Validate expected values
@@ -157,6 +202,59 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
         # yamllint enable rule:line-length
 
+      - name: 'Test repository metadata action (with Git detection)'
+        id: metadata-git
+        uses: ./
+        with:
+          debug: true
+          change_detection: git
+          generate_summary: false
+
+      - name: 'Validate Git fallback outputs'
+        shell: bash
+        # yamllint disable rule:line-length
+        run: |
+          # Validate that Git detection produced results
+          {
+            echo '## Git Detection Test'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Validate basic outputs still work
+          expected_owner="${GITHUB_REPOSITORY_OWNER}"
+          actual_owner="${{ steps.metadata-git.outputs.repository_owner }}"
+
+          if [ "$actual_owner" != "$expected_owner" ]; then
+            {
+              echo "❌ Git detection: owner mismatch"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Git detection: Owner matches: $expected_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Validate commit SHA
+          expected_sha="$GITHUB_SHA"
+          actual_sha="${{ steps.metadata-git.outputs.commit_sha }}"
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            {
+              echo "❌ Git detection: SHA mismatch"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Git detection: SHA matches"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo ''
+            echo '✅ Git detection test passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
       - name: 'Test JSON parsing'
         shell: bash
         env:
@@ -180,6 +278,34 @@ jobs:
             echo "- Event Name: $event_name"
             echo ''
             echo '✅ JSON parsing successful'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+      - name: 'Test YAML parsing'
+        shell: bash
+        env:
+          METADATA_YAML: ${{ steps.metadata.outputs.metadata_yaml }}
+        # yamllint disable rule:line-length
+        run: |
+          # Test parsing YAML output
+
+          # Extract values from YAML
+          repo_owner=$(echo "$METADATA_YAML" | yq eval '.repository.owner' -)
+          repo_name=$(echo "$METADATA_YAML" | yq eval '.repository.name' -)
+          commit_sha=$(echo "$METADATA_YAML" | yq eval '.commit.sha_short' -)
+          event_name=$(echo "$METADATA_YAML" | yq eval '.event.name' -)
+          branch_name=$(echo "$METADATA_YAML" | yq eval '.ref.branch_name' -)
+
+          {
+            echo '## YAML Parsing Test'
+            echo ''
+            echo "- Repository Owner: $repo_owner"
+            echo "- Repository Name: $repo_name"
+            echo "- Commit SHA: $commit_sha"
+            echo "- Event Name: $event_name"
+            echo "- Branch Name: $branch_name"
+            echo ''
+            echo '✅ YAML parsing successful'
           } >> "$GITHUB_STEP_SUMMARY"
         # yamllint enable rule:line-length
 
@@ -286,6 +412,118 @@ jobs:
             echo "✅ Cache key: ${{ steps.metadata.outputs.cache_key }}"
             echo "✅ Restore key: ${{ steps.metadata.outputs.cache_restore_key }}"
             echo ''
-            echo 'Cache keys successfully used with actions/cache'
+            echo '✅ Cache keys successfully used with actions/cache'
           } >> "$GITHUB_STEP_SUMMARY"
         # yamllint enable rule:line-length
+
+  # Test artifact formats
+  test-artifact-formats:
+    name: 'Test artifact format options'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: 'Test JSON-only artifacts'
+        id: json-only
+        uses: ./
+        with:
+          artifact_formats: json
+
+      - name: 'Verify JSON-only artifact'
+        shell: bash
+        run: |
+          artifact_path="${{ steps.json-only.outputs.artifact_path }}"
+
+          if [ ! -f "$artifact_path/metadata.json" ]; then
+            echo "❌ metadata.json not found"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata-pretty.json" ]; then
+            echo "❌ metadata-pretty.json not found"
+            exit 1
+          fi
+
+          if [ -f "$artifact_path/metadata.yaml" ]; then
+            echo "❌ metadata.yaml should not exist for json-only format"
+            exit 1
+          fi
+
+          {
+            echo '## JSON-Only Artifact Test'
+            echo '✅ Only JSON files created'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Test YAML-only artifacts'
+        id: yaml-only
+        uses: ./
+        with:
+          artifact_formats: yaml
+
+      - name: 'Verify YAML-only artifact'
+        shell: bash
+        run: |
+          artifact_path="${{ steps.yaml-only.outputs.artifact_path }}"
+
+          if [ -f "$artifact_path/metadata.json" ]; then
+            echo "❌ metadata.json should not exist for yaml-only format"
+            exit 1
+          fi
+
+          if [ -f "$artifact_path/metadata-pretty.json" ]; then
+            echo "❌ metadata-pretty.json should not exist for yaml-only format"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata.yaml" ]; then
+            echo "❌ metadata.yaml not found"
+            exit 1
+          fi
+
+          {
+            echo '## YAML-Only Artifact Test'
+            echo '✅ Only YAML file created'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Test both formats (default)'
+        id: both-formats
+        uses: ./
+        with:
+          artifact_formats: json,yaml
+
+      - name: 'Verify both formats artifact'
+        shell: bash
+        run: |
+          artifact_path="${{ steps.both-formats.outputs.artifact_path }}"
+
+          if [ ! -f "$artifact_path/metadata.json" ]; then
+            echo "❌ metadata.json not found"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata-pretty.json" ]; then
+            echo "❌ metadata-pretty.json not found"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata.yaml" ]; then
+            echo "❌ metadata.yaml not found"
+            exit 1
+          fi
+
+          {
+            echo '## Both Formats Artifact Test'
+            echo '✅ All files created (JSON + YAML)'
+          } >> "$GITHUB_STEP_SUMMARY"

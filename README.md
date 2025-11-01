@@ -28,6 +28,7 @@ information.
 - 🔑 **Cache Key Generation**: Smart cache keys for workflow optimization
 - 📄 **Changed Files**: List of files changed in PRs and pushes
 - 📋 **JSON Output**: All metadata in a single JSON object
+- 📄 **YAML Output**: All metadata in YAML format
 - 🔍 **Debug Mode**: Verbose logging for troubleshooting
 
 ## Usage Example
@@ -59,10 +60,15 @@ steps:
 
 <!-- markdownlint-disable MD013 -->
 
-| Variable Name | Description                                  | Required | Default            |
-| ------------- | -------------------------------------------- | -------- | ------------------ |
-| debug         | Enable debug mode for verbose output         | No       | false              |
-| github_token  | GitHub token for API access (changed files)  | No       | ${{ github.token }} |
+| Variable Name      | Description                                        | Required | Default            |
+| ------------------ | -------------------------------------------------- | -------- | ------------------ |
+| debug              | Enable debug mode for verbose output               | No       | false              |
+| github_token       | GitHub token for API access (changed files)        | No       | ${{ github.token }} |
+| generate_summary   | Generate summary in GITHUB_STEP_SUMMARY            | No       | false              |
+| artifact_upload    | Upload metadata as workflow artifact               | No       | true               |
+| artifact_formats   | Comma-separated list of formats to upload (json, yaml) | No   | json,yaml          |
+| change_detection   | Changed files detection method: 'git' or 'github_api' | No    | (auto)             |
+| git_fetch_depth    | Depth for git fetch --deepen in shallow clones     | No       | 15                 |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -172,21 +178,35 @@ steps:
 
 <!-- markdownlint-enable MD013 -->
 
+### Artifact Outputs
+
+<!-- markdownlint-disable MD013 -->
+
+| Variable Name   | Description                                        |
+| --------------- | -------------------------------------------------- |
+| artifact_path   | Path to the metadata artifact files (if uploaded) |
+| artifact_suffix | Unique 4-character alphanumeric suffix for artifact naming |
+
+<!-- markdownlint-enable MD013 -->
+
 **Note**: Changed files detection requires checking out the repository
 with git history. For pull requests, it works best with the `github_token`
 input provided.
 
-### JSON Output
+### JSON and YAML Outputs
 
 <!-- markdownlint-disable MD013 -->
 
 | Variable Name | Description                        |
 | ------------- | ---------------------------------- |
 | metadata_json | All metadata as a JSON object      |
+| metadata_yaml | All metadata as a YAML object      |
 
 <!-- markdownlint-enable MD013 -->
 
-The JSON output contains all metadata in a structured format:
+Both JSON and YAML outputs contain all metadata in structured formats:
+
+**JSON Format:**
 
 ```json
 {
@@ -239,6 +259,157 @@ The JSON output contains all metadata in a structured format:
   }
 }
 ```
+
+**YAML Format:**
+
+```yaml
+repository:
+  owner: owner-name
+  name: repo-name
+  full_name: owner-name/repo-name
+  is_public: true
+  is_private: false
+event:
+  name: push
+  is_tag_push: false
+  is_branch_push: true
+  is_pull_request: false
+  is_release: false
+  is_schedule: false
+  is_workflow_dispatch: false
+  tag_push_event: false
+ref:
+  branch_name: main
+  tag_name: ""
+  is_default_branch: true
+  is_main_branch: true
+commit:
+  sha: abc123...
+  sha_short: abc123
+  message: Commit message
+  author: Author Name
+pull_request:
+  number: null
+  source_branch: ""
+  target_branch: ""
+  is_fork: false
+actor:
+  name: username
+  id: 12345
+cache:
+  key: owner-repo-main-abc123
+  restore_key: owner-repo-main-
+changed_files:
+  count: 0
+  files: ""
+```
+
+## Artifact Upload
+
+By default, the action uploads metadata as a workflow artifact. Each invocation
+generates a unique artifact name to avoid conflicts when calling the action
+more than once in the same workflow.
+
+**Artifact Naming Format**: `repository-metadata-<job-name>-<suffix>`
+
+Where `<suffix>` is a randomly generated 4-character alphanumeric string
+(e.g., `a3f9`, `x2k5`).
+
+**Examples**:
+
+- `repository-metadata-tests-a3f9`
+- `repository-metadata-build-x2k5`
+- `repository-metadata-deploy-7n4m`
+
+The artifact contains (by default):
+
+- `metadata.json` - Compact JSON format
+- `metadata-pretty.json` - Pretty-printed JSON for human readability
+- `metadata.yaml` - YAML format
+
+**Customize artifact formats:**
+
+```yaml
+# Upload JSON format
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    artifact_formats: json
+
+# Upload YAML format
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    artifact_formats: yaml
+
+# Upload both (default)
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    artifact_formats: json,yaml
+```
+
+**Disable artifact upload:**
+
+```yaml
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    artifact_upload: false
+```
+
+## Changed Files Detection
+
+The action supports two methods for detecting changed files in pull requests:
+
+### Automatic (Default)
+
+When you provide `github_token`, the action uses the GitHub API. Otherwise,
+it falls back to git-based detection.
+
+### Explicit Method Selection
+
+You can force a specific detection method using the `change_detection` input:
+
+**Git-based detection** (works offline, requires git history):
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0  # Required for git-based detection
+
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    change_detection: git
+```
+
+**GitHub API-based detection** (requires token):
+
+```yaml
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    change_detection: github_api
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The action automatically handles shallow clones by fetching the base branch
+when needed for accurate file change detection.
+
+### Git Fetch Depth Configuration
+
+When using git-based detection with shallow clones, the action may need to
+fetch more history to find the common ancestor between the PR branch
+and the base branch. You can configure the fetch depth:
+
+```yaml
+- uses: lfreleng-actions/repository-metadata-action@main
+  with:
+    change_detection: git
+    git_fetch_depth: 15  # Default: 15 commits
+```
+
+**When to adjust**:
+
+- **Increase** (e.g., 30-50) if you have PRs with more than 15 commits
+- **Decrease** (e.g., 5-10) for faster fetches if PRs are typically small
+- Most PRs have fewer than 15 commits, making the default appropriate for
+  most use cases
 
 ## Advanced Examples
 
@@ -329,13 +500,31 @@ steps:
   - id: metadata
     uses: lfreleng-actions/repository-metadata-action@main
 
-  - name: "Process metadata"
+  - name: "Process metadata with jq"
     env:
       METADATA: ${{ steps.metadata.outputs.metadata_json }}
     run: |
       echo "$METADATA" | jq '.repository.owner'
       echo "$METADATA" | jq '.commit.sha_short'
       echo "$METADATA" | jq '.event | to_entries[] | select(.value == true)'
+```
+
+### Using YAML Output
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+
+  - id: metadata
+    uses: lfreleng-actions/repository-metadata-action@main
+
+  - name: "Process metadata with yq"
+    env:
+      METADATA: ${{ steps.metadata.outputs.metadata_yaml }}
+    run: |
+      echo "$METADATA" | yq eval '.repository.owner'
+      echo "$METADATA" | yq eval '.commit.sha_short'
+      echo "$METADATA" | yq eval '.ref.branch_name'
 ```
 
 ### Debug Mode
