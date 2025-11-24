@@ -1,0 +1,529 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2025 The Linux Foundation
+
+# Action test/validation workflow
+name: 'Test GitHub Action 🧪'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  ### Test the GitHub Action in this Repository ###
+  tests:
+    name: 'Test repository metadata action'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    timeout-minutes: 5
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0  # Required for changed files detection
+
+      - name: 'Test repository metadata action (with GitHub API)'
+        id: metadata
+        uses: ./
+        with:
+          debug: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          generate_summary: true
+
+      - name: 'Validate outputs'
+        shell: bash
+        env:
+          METADATA_JSON: ${{ steps.metadata.outputs.metadata_json }}
+          METADATA_YAML: ${{ steps.metadata.outputs.metadata_yaml }}
+        # yamllint disable rule:line-length
+        run: |
+          # Validate repository metadata outputs
+          {
+            echo '## Validation Results'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Validate JSON output
+          if [ -z "$METADATA_JSON" ]; then
+            {
+              echo '### 📋 JSON Output Validation'
+              echo '❌ metadata_json output is empty'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            # Validate JSON is parseable
+            if echo "$METADATA_JSON" | jq . > /dev/null 2>&1; then
+              {
+                echo '### 📋 JSON Output Validation'
+                echo '✅ metadata_json populated'
+                echo '✅ metadata_json is valid JSON'
+                echo ''
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo '### 📋 JSON Output Validation'
+                echo '✅ metadata_json populated'
+                echo '❌ metadata_json is not valid JSON'
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+
+          # Validate YAML output
+          if [ -z "$METADATA_YAML" ]; then
+            {
+              echo '### 📄 YAML Output Validation'
+              echo '❌ metadata_yaml output is empty'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            # Validate YAML is parseable
+            if echo "$METADATA_YAML" | yq eval . > /dev/null 2>&1; then
+              {
+                echo '### 📄 YAML Output Validation'
+                echo '✅ metadata_yaml populated'
+                echo '✅ metadata_yaml is valid YAML'
+                echo ''
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo '### 📄 YAML Output Validation'
+                echo '✅ metadata_yaml populated'
+                echo '❌ metadata_yaml is not valid YAML'
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+
+          # Validate JSON and YAML contain same data
+          json_owner=$(echo "$METADATA_JSON" | jq -r '.repository.owner')
+          yaml_owner=$(echo "$METADATA_YAML" | yq eval '.repository.owner' -)
+
+          if [ "$json_owner" != "$yaml_owner" ]; then
+            {
+              echo '### 🔄 Format Consistency Validation'
+              echo "❌ JSON/YAML mismatch: JSON owner=$json_owner, YAML owner=$yaml_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo '### 🔄 Format Consistency Validation'
+              echo '✅ JSON and YAML contain consistent data'
+              echo ''
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Validate expected values
+          expected_owner="${GITHUB_REPOSITORY_OWNER}"
+          expected_name="${GITHUB_REPOSITORY#"$GITHUB_REPOSITORY_OWNER"/}"
+          actual_owner="${{ steps.metadata.outputs.repository_owner }}"
+          actual_name="${{ steps.metadata.outputs.repository_name }}"
+
+          {
+            echo '### 🧪 Value Validation'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$actual_owner" != "$expected_owner" ]; then
+            {
+              echo "❌ owner mismatch: expected $expected_owner, got $actual_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Owner matches: $expected_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ "$actual_name" != "$expected_name" ]; then
+            {
+              echo "❌ name mismatch: expected $expected_name, got $actual_name"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Name matches: $expected_name"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Validate commit SHA
+          expected_sha="$GITHUB_SHA"
+          actual_sha="${{ steps.metadata.outputs.commit_sha }}"
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            {
+              echo "❌ SHA mismatch: expected $expected_sha, got $actual_sha"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            expected_sha_short="${expected_sha:0:7}"
+            {
+              echo "✅ SHA matches: ${expected_sha_short}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Validate event detection logic
+          event_name="${{ steps.metadata.outputs.event_name }}"
+          is_pr="${{ steps.metadata.outputs.is_pull_request }}"
+
+          if [ "$event_name" = "pull_request" ]; then
+            if [ "$is_pr" != "true" ]; then
+              {
+                echo "❌ PR event detected but is_pull_request is not true"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            else
+              {
+                echo '✅ PR event correctly detected'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          {
+            echo ''
+            echo '## ✅ All tests passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+      - name: 'Test repository metadata action (with Git detection)'
+        id: metadata-git
+        uses: ./
+        with:
+          debug: true
+          change_detection: git
+          generate_summary: false
+
+      - name: 'Validate Git fallback outputs'
+        shell: bash
+        # yamllint disable rule:line-length
+        run: |
+          # Validate that Git detection produced results
+          {
+            echo '## Git Detection Test'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Validate basic outputs still work
+          expected_owner="${GITHUB_REPOSITORY_OWNER}"
+          actual_owner="${{ steps.metadata-git.outputs.repository_owner }}"
+
+          if [ "$actual_owner" != "$expected_owner" ]; then
+            {
+              echo "❌ Git detection: owner mismatch"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Git detection: Owner matches: $expected_owner"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Validate commit SHA
+          expected_sha="$GITHUB_SHA"
+          actual_sha="${{ steps.metadata-git.outputs.commit_sha }}"
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            {
+              echo "❌ Git detection: SHA mismatch"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            {
+              echo "✅ Git detection: SHA matches"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo ''
+            echo '✅ Git detection test passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+      - name: 'Test JSON parsing'
+        shell: bash
+        env:
+          METADATA_JSON: ${{ steps.metadata.outputs.metadata_json }}
+        # yamllint disable rule:line-length
+        run: |
+          # Test parsing JSON output
+
+          # Extract values from JSON
+          repo_owner=$(echo "$METADATA_JSON" | jq -r '.repository.owner')
+          repo_name=$(echo "$METADATA_JSON" | jq -r '.repository.name')
+          commit_sha=$(echo "$METADATA_JSON" | jq -r '.commit.sha_short')
+          event_name=$(echo "$METADATA_JSON" | jq -r '.event.name')
+
+          {
+            echo '## JSON Parsing Test'
+            echo ''
+            echo "- Repository Owner: $repo_owner"
+            echo "- Repository Name: $repo_name"
+            echo "- Commit SHA: $commit_sha"
+            echo "- Event Name: $event_name"
+            echo ''
+            echo '✅ JSON parsing successful'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+      - name: 'Test YAML parsing'
+        shell: bash
+        env:
+          METADATA_YAML: ${{ steps.metadata.outputs.metadata_yaml }}
+        # yamllint disable rule:line-length
+        run: |
+          # Test parsing YAML output
+
+          # Extract values from YAML
+          repo_owner=$(echo "$METADATA_YAML" | yq eval '.repository.owner' -)
+          repo_name=$(echo "$METADATA_YAML" | yq eval '.repository.name' -)
+          commit_sha=$(echo "$METADATA_YAML" | yq eval '.commit.sha_short' -)
+          event_name=$(echo "$METADATA_YAML" | yq eval '.event.name' -)
+          branch_name=$(echo "$METADATA_YAML" | yq eval '.ref.branch_name' -)
+
+          {
+            echo '## YAML Parsing Test'
+            echo ''
+            echo "- Repository Owner: $repo_owner"
+            echo "- Repository Name: $repo_name"
+            echo "- Commit SHA: $commit_sha"
+            echo "- Event Name: $event_name"
+            echo "- Branch Name: $branch_name"
+            echo ''
+            echo '✅ YAML parsing successful'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+  # Test with a simulated tag push scenario
+  test-tag-detection:
+    name: 'Test tag detection logic'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: 'Test tag detection with mock data'
+        shell: bash
+        # yamllint disable rule:line-length
+        run: |
+          # Test the tag detection logic directly
+          {
+            echo '## Tag Detection Test Results'
+            echo ''
+
+            # Test version tag pattern
+            refs=("v1.0.0" "v2.1.3" "v10.20.30" "main" "feature/test" "v1.2" "1.0.0" "release-1.0")
+
+            echo '| Ref Name | Matches Pattern | Expected |'
+            echo '|----------|----------------|----------|'
+
+          for ref in "${refs[@]}"; do
+            if [[ "$ref" =~ ^v[0-9]+\.[0-9]+ ]]; then
+              result="✅ true"
+            else
+              result="❌ false"
+            fi
+
+            # Determine expected result
+            case "$ref" in
+              v1.0.0|v2.1.3|v10.20.30|v1.2)
+                expected="✅ true"
+                ;;
+              *)
+                expected="❌ false"
+                ;;
+            esac
+
+            echo "| $ref | $result | $expected |"
+          done
+
+            echo ''
+            echo '✅ Tag detection pattern tested'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+  # Test cache key functionality
+  test-cache-keys:
+    name: 'Test cache key generation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: 'Get metadata'
+        id: metadata
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          generate_summary: true
+
+      - name: 'Test cache with generated keys'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/test
+          key: ${{ steps.metadata.outputs.cache_key }}-test
+          restore-keys: |
+            ${{ steps.metadata.outputs.cache_restore_key }}-test
+
+      - name: 'Validate cache keys'
+        shell: bash
+        # yamllint disable rule:line-length
+        run: |
+          {
+            echo '## Cache Key Test'
+            echo ''
+            echo "✅ Cache key: ${{ steps.metadata.outputs.cache_key }}"
+            echo "✅ Restore key: ${{ steps.metadata.outputs.cache_restore_key }}"
+            echo ''
+            echo '✅ Cache keys successfully used with actions/cache'
+          } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
+
+  # Test artifact formats
+  test-artifact-formats:
+    name: 'Test artifact format options'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: 'Test JSON-only artifacts'
+        id: json-only
+        uses: ./
+        with:
+          artifact_formats: json
+
+      - name: 'Verify JSON-only artifact'
+        shell: bash
+        run: |
+          artifact_path="${{ steps.json-only.outputs.artifact_path }}"
+
+          if [ ! -f "$artifact_path/metadata.json" ]; then
+            echo "❌ metadata.json not found"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata-pretty.json" ]; then
+            echo "❌ metadata-pretty.json not found"
+            exit 1
+          fi
+
+          if [ -f "$artifact_path/metadata.yaml" ]; then
+            echo "❌ metadata.yaml should not exist for json-only format"
+            exit 1
+          fi
+
+          {
+            echo '## JSON-Only Artifact Test'
+            echo '✅ Only JSON files created'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Test YAML-only artifacts'
+        id: yaml-only
+        uses: ./
+        with:
+          artifact_formats: yaml
+
+      - name: 'Verify YAML-only artifact'
+        shell: bash
+        run: |
+          artifact_path="${{ steps.yaml-only.outputs.artifact_path }}"
+
+          if [ -f "$artifact_path/metadata.json" ]; then
+            echo "❌ metadata.json should not exist for yaml-only format"
+            exit 1
+          fi
+
+          if [ -f "$artifact_path/metadata-pretty.json" ]; then
+            echo "❌ metadata-pretty.json should not exist for yaml-only format"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata.yaml" ]; then
+            echo "❌ metadata.yaml not found"
+            exit 1
+          fi
+
+          {
+            echo '## YAML-Only Artifact Test'
+            echo '✅ Only YAML file created'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Test both formats (default)'
+        id: both-formats
+        uses: ./
+        with:
+          artifact_formats: json,yaml
+
+      - name: 'Verify both formats artifact'
+        shell: bash
+        run: |
+          artifact_path="${{ steps.both-formats.outputs.artifact_path }}"
+
+          if [ ! -f "$artifact_path/metadata.json" ]; then
+            echo "❌ metadata.json not found"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata-pretty.json" ]; then
+            echo "❌ metadata-pretty.json not found"
+            exit 1
+          fi
+
+          if [ ! -f "$artifact_path/metadata.yaml" ]; then
+            echo "❌ metadata.yaml not found"
+            exit 1
+          fi
+
+          {
+            echo '## Both Formats Artifact Test'
+            echo '✅ All files created (JSON + YAML)'
+          } >> "$GITHUB_STEP_SUMMARY"

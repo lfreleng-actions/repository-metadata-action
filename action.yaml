@@ -1,0 +1,213 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2025 The Linux Foundation
+
+# repository-metadata-action
+name: '🛠️ Repository Metadata'
+description: 'Gathers repository metadata'
+# Also prints a summary of various GitHub environment variables to the console
+
+inputs:
+  # Optional
+  github_token:
+    # Not mandatory; uses git diff when token not provided
+    description: 'GitHub token for API access'
+    required: false
+    default: ''
+  debug:
+    description: 'Enable debug mode for verbose output'
+    required: false
+    default: 'false'
+  generate_summary:
+    description: >-
+      Generate a summary of repository metadata in GITHUB_STEP_SUMMARY
+    required: false
+    default: 'false'
+  artifact_upload:
+    description: >-
+      Upload metadata as a workflow artifact (JSON/YAML formats)
+    required: false
+    default: 'true'
+  artifact_formats:
+    description: >-
+      Comma-separated list of formats to upload (json, yaml)
+    required: false
+    default: 'json,yaml'
+  change_detection:
+    description: >-
+      Changed files detection method: 'git' or 'github_api'
+      (defaults to 'github_api' when token provided, 'git' otherwise)
+    required: false
+    default: ''
+  git_fetch_depth:
+    description: >-
+      Depth for git fetch --deepen when shallow clone needs more history
+    required: false
+    default: '15'
+
+outputs:
+  # Repository outputs
+  repository_owner:
+    description: 'Returns the name of the GitHub organization'
+    value: ${{ steps.metadata.outputs.repository_owner }}
+  repository_name:
+    description: 'Returns the name of the GitHub repository'
+    value: ${{ steps.metadata.outputs.repository_name }}
+  repository_full_name:
+    description: 'Returns the full repository name (owner/name)'
+    value: ${{ steps.metadata.outputs.repository_full_name }}
+  is_public:
+    description: 'Returns true if the repository is public'
+    value: ${{ steps.metadata.outputs.is_public }}
+  is_private:
+    description: 'Returns true if the repository is private'
+    value: ${{ steps.metadata.outputs.is_private }}
+
+  # Event type detection outputs
+  tag_push_event:
+    description: 'Returns true if the event was triggered by a version tag push'
+    value: ${{ steps.metadata.outputs.tag_push_event }}
+  is_tag_push:
+    description: 'Returns true if the event is a tag push'
+    value: ${{ steps.metadata.outputs.is_tag_push }}
+  is_branch_push:
+    description: 'Returns true if the event is a branch push'
+    value: ${{ steps.metadata.outputs.is_branch_push }}
+  is_pull_request:
+    description: 'Returns true if the event is a pull request'
+    value: ${{ steps.metadata.outputs.is_pull_request }}
+  is_release:
+    description: 'Returns true if the event is a release'
+    value: ${{ steps.metadata.outputs.is_release }}
+  is_schedule:
+    description: 'Returns true if the event is scheduled'
+    value: ${{ steps.metadata.outputs.is_schedule }}
+  is_workflow_dispatch:
+    description: 'Returns true if the event is manually triggered'
+    value: ${{ steps.metadata.outputs.is_workflow_dispatch }}
+  event_name:
+    description: 'The name of the event that triggered the workflow'
+    value: ${{ steps.metadata.outputs.event_name }}
+
+  # Branch outputs
+  branch_name:
+    description: 'Returns the branch name (empty for tag pushes)'
+    value: ${{ steps.metadata.outputs.branch_name }}
+  is_default_branch:
+    description: 'Returns true if running on the default branch'
+    value: ${{ steps.metadata.outputs.is_default_branch }}
+  is_main_branch:
+    description: 'Returns true if running on main or master branch'
+    value: ${{ steps.metadata.outputs.is_main_branch }}
+  tag_name:
+    description: 'Returns the tag name (empty if not a tag)'
+    value: ${{ steps.metadata.outputs.tag_name }}
+
+  # Commit outputs
+  commit_sha:
+    description: 'Full commit SHA'
+    value: ${{ steps.metadata.outputs.commit_sha }}
+  commit_sha_short:
+    description: 'Short commit SHA (first 7 characters)'
+    value: ${{ steps.metadata.outputs.commit_sha_short }}
+  commit_message:
+    description: 'Commit message title'
+    value: ${{ steps.metadata.outputs.commit_message }}
+  commit_author:
+    description: 'Commit author name'
+    value: ${{ steps.metadata.outputs.commit_author }}
+
+  # Pull request outputs
+  pr_number:
+    description: 'Pull request number (empty if not a PR)'
+    value: ${{ steps.metadata.outputs.pr_number }}
+  pr_source_branch:
+    description: 'Pull request source branch (head ref)'
+    value: ${{ steps.metadata.outputs.pr_source_branch }}
+  pr_target_branch:
+    description: 'Pull request target branch (base ref)'
+    value: ${{ steps.metadata.outputs.pr_target_branch }}
+  is_fork:
+    description: 'Returns true if pull request is from a fork'
+    value: ${{ steps.metadata.outputs.is_fork }}
+  pr_commits_count:
+    description: 'Number of commits in the pull request'
+    value: ${{ steps.metadata.outputs.pr_commits_count }}
+
+  # Actor outputs
+  actor:
+    description: 'GitHub actor (user who triggered the workflow)'
+    value: ${{ steps.metadata.outputs.actor }}
+  actor_id:
+    description: 'GitHub actor ID'
+    value: ${{ steps.metadata.outputs.actor_id }}
+
+  # Cache outputs
+  cache_key:
+    description: 'Generated cache key based on repository and commit'
+    value: ${{ steps.metadata.outputs.cache_key }}
+  cache_restore_key:
+    description: 'Generated cache restore key prefix'
+    value: ${{ steps.metadata.outputs.cache_restore_key }}
+
+  # Changed files outputs
+  changed_files:
+    description: 'List of changed files (space-separated, for PRs and pushes)'
+    value: ${{ steps.metadata.outputs.changed_files }}
+  changed_files_count:
+    description: 'Number of changed files'
+    value: ${{ steps.metadata.outputs.changed_files_count }}
+
+  # JSON output
+  metadata_json:
+    description: 'All metadata as a JSON object'
+    value: ${{ steps.metadata.outputs.metadata_json }}
+
+  # YAML output
+  metadata_yaml:
+    description: 'All metadata as a YAML object'
+    value: ${{ steps.metadata.outputs.metadata_yaml }}
+
+  # Artifact output
+  artifact_path:
+    description: 'Path to the metadata artifact files (if uploaded)'
+    value: ${{ steps.metadata.outputs.artifact_path }}
+  artifact_suffix:
+    description: 'Unique suffix for artifact naming (to avoid conflicts)'
+    value: ${{ steps.metadata.outputs.artifact_suffix }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'GitHub Repository Metadata'
+      id: metadata
+      shell: bash
+      env:
+        DEBUG_MODE: ${{ inputs.debug }}
+        GITHUB_TOKEN_INPUT: ${{ inputs.github_token }}
+        GENERATE_SUMMARY: ${{ inputs.generate_summary }}
+        ARTIFACT_UPLOAD: ${{ inputs.artifact_upload }}
+        ARTIFACT_FORMATS: ${{ inputs.artifact_formats }}
+        CHANGE_DETECTION: ${{ inputs.change_detection }}
+        GIT_FETCH_DEPTH: ${{ inputs.git_fetch_depth }}
+        REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+        GITHUB_ACTOR: ${{ github.actor }}
+        GITHUB_ACTOR_ID: ${{ github.actor_id }}
+        PR_HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        # Execute metadata extraction script
+        chmod +x "${{ github.action_path }}/scripts/extract-metadata.sh"
+        "${{ github.action_path }}/scripts/extract-metadata.sh"
+
+    - name: 'Upload metadata artifact'
+      if: inputs.artifact_upload == 'true'
+      # yamllint disable-line rule:line-length
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      with:
+        # yamllint disable-line rule:line-length
+        name: repository-metadata-${{ github.job }}-${{ steps.metadata.outputs.artifact_suffix }}
+        # yamllint disable-line rule:line-length
+        path: ${{ runner.temp }}/repository-metadata-${{ steps.metadata.outputs.artifact_suffix }}/
+        if-no-files-found: warn
+        retention-days: 90
