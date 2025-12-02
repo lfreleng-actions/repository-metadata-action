@@ -36,6 +36,8 @@ metadata generated from the same source data.
 
 ### JSON vs YAML
 
+<!-- markdownlint-disable MD060 -->
+
 | Feature            | JSON             | YAML                |
 | ------------------ | ---------------- | ------------------- |
 | **Compactness**    | ✅ More compact   | ❌ More verbose      |
@@ -44,6 +46,8 @@ metadata generated from the same source data.
 | **Comments**       | ❌ No support     | ✅ Supports comments |
 | **GitHub Actions** | ✅ Native support | ⚠️ Needs `yq`       |
 | **Best For**       | Automation, APIs | Humans, configs     |
+
+<!-- markdownlint-enable MD060 -->
 
 **Recommendation**: Use JSON for automation, YAML for human review and
 debugging.
@@ -393,6 +397,8 @@ Or use Docker:
 
 Both actions now follow the same pattern:
 
+<!-- markdownlint-disable MD060 -->
+
 | Feature         | repository-metadata-action | build-metadata-action |
 | --------------- | -------------------------- | --------------------- |
 | JSON output     | ✅ `metadata_json`          | ✅ `metadata_json`     |
@@ -402,6 +408,8 @@ Both actions now follow the same pattern:
 | Default formats | `json,yaml`                | `json,yaml`           |
 | Validation      | ✅ Built-in (via tools)     | ✅ Explicit validation |
 | Error handling  | ✅ Fail fast                | ✅ Fail fast           |
+
+<!-- markdownlint-enable MD060 -->
 
 **Design Consistency**: Both actions share:
 
