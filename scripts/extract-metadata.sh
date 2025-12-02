@@ -182,6 +182,214 @@ set_output "is_schedule" "${IS_SCHEDULE}"
 set_output "is_workflow_dispatch" "${IS_WORKFLOW_DISPATCH}"
 
 # ============================================================================
+# GERRIT METADATA EXTRACTION
+# ============================================================================
+# Initialize Gerrit variables
+GERRIT_SOURCE=""
+GERRIT_BRANCH=""
+GERRIT_CHANGE_ID=""
+GERRIT_CHANGE_NUMBER=""
+GERRIT_CHANGE_URL=""
+GERRIT_EVENT_TYPE=""
+GERRIT_PATCHSET_NUMBER=""
+GERRIT_PATCHSET_REVISION=""
+GERRIT_PROJECT=""
+GERRIT_REFSPEC=""
+GERRIT_COMMENT=""
+GERRIT_JSON_INPUT=""
+HAS_GERRIT_DATA="false"
+
+# Process Gerrit data for workflow_dispatch events or check environment variables
+if [ "${IS_WORKFLOW_DISPATCH}" = "true" ]; then
+  echo ""
+  echo '### 📋 Gerrit Metadata Detection ###'
+
+  # Read the event payload (support override for tests)
+  EVENT_PATH="${GITHUB_EVENT_PATH_OVERRIDE:-$GITHUB_EVENT_PATH}"
+  if [ -f "$EVENT_PATH" ]; then
+    EVENT_PAYLOAD=$(cat "$EVENT_PATH")
+
+    # Check for gerrit_json input first (preferred method - consolidated JSON format)
+    # Falls back to individual GERRIT_* inputs for backward compatibility #
+    GERRIT_JSON_INPUT=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.gerrit_json // empty' 2>/dev/null || echo "")
+
+    if [ -n "$GERRIT_JSON_INPUT" ] && [ "$GERRIT_JSON_INPUT" != "null" ]; then
+      echo "🔍 Detected gerrit_json input"
+
+      # Validate JSON
+      if echo "$GERRIT_JSON_INPUT" | jq empty 2>/dev/null; then
+        echo "✅ gerrit_json is valid JSON"
+        GERRIT_SOURCE="Consolidated JSON variable"
+        HAS_GERRIT_DATA="true"
+
+        # Extract fields from JSON (using schema order)
+        GERRIT_BRANCH=$(echo "$GERRIT_JSON_INPUT" | jq -r '.branch // empty')
+        GERRIT_CHANGE_ID=$(echo "$GERRIT_JSON_INPUT" | jq -r '.change_id // empty')
+        GERRIT_CHANGE_NUMBER=$(echo "$GERRIT_JSON_INPUT" | jq -r '.change_number // empty')
+        GERRIT_CHANGE_URL=$(echo "$GERRIT_JSON_INPUT" | jq -r '.change_url // empty')
+        GERRIT_EVENT_TYPE=$(echo "$GERRIT_JSON_INPUT" | jq -r '.event_type // empty')
+        GERRIT_PATCHSET_NUMBER=$(echo "$GERRIT_JSON_INPUT" | jq -r '.patchset_number // empty')
+        GERRIT_PATCHSET_REVISION=$(echo "$GERRIT_JSON_INPUT" | jq -r '.patchset_revision // empty')
+        GERRIT_PROJECT=$(echo "$GERRIT_JSON_INPUT" | jq -r '.project // empty')
+        GERRIT_REFSPEC=$(echo "$GERRIT_JSON_INPUT" | jq -r '.refspec // empty')
+        GERRIT_COMMENT=$(echo "$GERRIT_JSON_INPUT" | jq -r '.comment // empty')
+
+        echo "Extracted Gerrit data from JSON:"
+        echo "  - branch: ${GERRIT_BRANCH}"
+        echo "  - change_id: ${GERRIT_CHANGE_ID}"
+        echo "  - change_number: ${GERRIT_CHANGE_NUMBER}"
+        echo "  - project: ${GERRIT_PROJECT}"
+      else
+        echo "⚠️ WARNING: gerrit_json input contains invalid JSON"
+        echo "Invalid JSON detected (content length: ${#GERRIT_JSON_INPUT} characters)"
+        echo "Content has been redacted to prevent potential secret leakage"
+        echo "Falling back to GERRIT_* inputs..."
+        GERRIT_JSON_INPUT=""  # Clear invalid JSON
+      fi
+    fi
+
+    # Fallback to GERRIT_* inputs if gerrit_json is not available or invalid
+    if [ "$HAS_GERRIT_DATA" = "false" ]; then
+      # Check if any GERRIT_* inputs exist
+      GERRIT_INPUTS=$(echo "$EVENT_PAYLOAD" | jq -e '.inputs | keys[] | select(startswith("GERRIT_"))' 2>/dev/null | head -n1 || echo "")
+
+      if [ -n "$GERRIT_INPUTS" ]; then
+        echo "🔍 Detected GERRIT_* inputs"
+        GERRIT_SOURCE="Workflow inputs/variables"
+        HAS_GERRIT_DATA="true"
+
+        # Extract all GERRIT_* inputs dynamically and map to schema fields
+        GERRIT_BRANCH=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_BRANCH // empty')
+        GERRIT_CHANGE_ID=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_CHANGE_ID // empty')
+        GERRIT_CHANGE_NUMBER=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_CHANGE_NUMBER // empty')
+        GERRIT_CHANGE_URL=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_CHANGE_URL // empty')
+        GERRIT_EVENT_TYPE=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_EVENT_TYPE // empty')
+        GERRIT_PATCHSET_NUMBER=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_PATCHSET_NUMBER // empty')
+        GERRIT_PATCHSET_REVISION=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_PATCHSET_REVISION // empty')
+        GERRIT_PROJECT=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_PROJECT // empty')
+        GERRIT_REFSPEC=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_REFSPEC // empty')
+        GERRIT_COMMENT=$(echo "$EVENT_PAYLOAD" | jq -r '.inputs.GERRIT_COMMENT // empty')
+
+        echo "Extracted Gerrit data from workflow inputs:"
+        echo "  - GERRIT_BRANCH: ${GERRIT_BRANCH}"
+        echo "  - GERRIT_CHANGE_ID: ${GERRIT_CHANGE_ID}"
+        echo "  - GERRIT_CHANGE_NUMBER: ${GERRIT_CHANGE_NUMBER}"
+        echo "  - GERRIT_PROJECT: ${GERRIT_PROJECT}"
+      else
+        echo "ℹ️ No Gerrit inputs detected"
+      fi
+    fi
+  else
+    echo "⚠️ WARNING: Event payload file not found: ${EVENT_PATH}"
+  fi
+else
+  # For non-workflow_dispatch events (like push), check for Gerrit environment variables
+  # or extract from commit message
+  debug_log "Checking for Gerrit environment variables"
+
+  # Check if any GERRIT_* environment variables are set
+  if [ -n "${GERRIT_BRANCH:-}" ] || [ -n "${GERRIT_CHANGE_ID:-}" ] || \
+     [ -n "${GERRIT_CHANGE_NUMBER:-}" ] || [ -n "${GERRIT_PROJECT:-}" ]; then
+    echo ""
+    echo '### 📋 Gerrit Metadata Detection ###'
+    echo "🔍 Detected GERRIT_* environment variables"
+    GERRIT_SOURCE="Environment variables"
+    HAS_GERRIT_DATA="true"
+
+    echo "Extracted Gerrit data from environment:"
+    echo "  - GERRIT_BRANCH: ${GERRIT_BRANCH}"
+    echo "  - GERRIT_CHANGE_ID: ${GERRIT_CHANGE_ID}"
+    echo "  - GERRIT_CHANGE_NUMBER: ${GERRIT_CHANGE_NUMBER}"
+    echo "  - GERRIT_PROJECT: ${GERRIT_PROJECT}"
+  else
+    # Try to extract Change-Id from commit message
+    debug_log "Checking commit message for Gerrit Change-Id"
+
+    # Get the commit message
+    COMMIT_MSG_FULL=$(git log -1 --format='%B' 2>/dev/null || echo "")
+
+    # Extract Change-Id using sed (portable across BSD/macOS/Linux)
+    EXTRACTED_CHANGE_ID=$(echo "$COMMIT_MSG_FULL" | sed -n 's/^Change-Id:[[:space:]]*\(I[0-9a-fA-F]\+\)$/\1/p' | head -n1)
+
+    if [ -n "$EXTRACTED_CHANGE_ID" ]; then
+      echo ""
+      echo '### 📋 Gerrit Metadata Detection ###'
+      echo "🔍 Detected Change-Id in commit message: ${EXTRACTED_CHANGE_ID}"
+      GERRIT_SOURCE="Commit message trailer"
+      HAS_GERRIT_DATA="true"
+
+      GERRIT_CHANGE_ID="$EXTRACTED_CHANGE_ID"
+      # For push events, use the branch name if available
+      GERRIT_BRANCH="${BRANCH_NAME:-}"
+      GERRIT_PROJECT=""
+      GERRIT_CHANGE_NUMBER=""
+      GERRIT_CHANGE_URL=""
+      GERRIT_EVENT_TYPE="ref-updated"
+      GERRIT_PATCHSET_NUMBER=""
+      GERRIT_PATCHSET_REVISION="${COMMIT_SHA:-}"
+      GERRIT_REFSPEC=""
+      GERRIT_COMMENT=""
+
+      echo "Extracted Gerrit data from commit:"
+      echo "  - Change-Id: ${GERRIT_CHANGE_ID}"
+      echo "  - Branch: ${GERRIT_BRANCH}"
+      echo "  - Patchset revision: ${GERRIT_PATCHSET_REVISION}"
+    else
+      debug_log "No Gerrit Change-Id found in commit message"
+    fi
+  fi
+fi
+
+# Build and output gerrit_json
+if [ "$HAS_GERRIT_DATA" = "true" ]; then
+  # If we have valid JSON input, use it as-is
+  if [ -n "$GERRIT_JSON_INPUT" ]; then
+    # Use provided JSON; strip comment unless explicitly enabled
+    if [ "${GERRIT_INCLUDE_COMMENT:-false}" = "true" ]; then
+      GERRIT_JSON_OUTPUT="$GERRIT_JSON_INPUT"
+    else
+      GERRIT_JSON_OUTPUT="$(echo "$GERRIT_JSON_INPUT" | jq -c 'del(.comment)')"
+    fi
+    echo "✅ Using gerrit_json input as output"
+  else
+    # Build JSON from GERRIT_* variables
+    GERRIT_JSON_OUTPUT=$(jq -n \
+      --arg branch "$GERRIT_BRANCH" \
+      --arg change_id "$GERRIT_CHANGE_ID" \
+      --arg change_number "$GERRIT_CHANGE_NUMBER" \
+      --arg change_url "$GERRIT_CHANGE_URL" \
+      --arg event_type "$GERRIT_EVENT_TYPE" \
+      --arg patchset_number "$GERRIT_PATCHSET_NUMBER" \
+      --arg patchset_revision "$GERRIT_PATCHSET_REVISION" \
+      --arg project "$GERRIT_PROJECT" \
+      --arg refspec "$GERRIT_REFSPEC" \
+      --arg comment "$GERRIT_COMMENT" \
+      '{
+        branch: $branch,
+        change_id: $change_id,
+        change_number: $change_number,
+        change_url: $change_url,
+        event_type: $event_type,
+        patchset_number: $patchset_number,
+        patchset_revision: $patchset_revision,
+        project: $project,
+        refspec: $refspec
+      } + (if $comment != "" and env.GERRIT_INCLUDE_COMMENT == "true" then {comment: $comment} else {} end)')
+    echo "✅ Built gerrit_json from GERRIT_* variables"
+  fi
+
+  # Set output
+  set_output "gerrit_json" "${GERRIT_JSON_OUTPUT}"
+
+  # Also store for use in metadata JSON/YAML (use parsed structure)
+  GERRIT_ENV_JSON=$(echo "$GERRIT_JSON_OUTPUT" | jq -c .)
+else
+  # No Gerrit data
+  set_output "gerrit_json" ""
+  GERRIT_ENV_JSON=""
+fi
+
+# ============================================================================
 # REF PARSING (Branch/Tag Detection)
 # ============================================================================
 echo ""
@@ -465,7 +673,8 @@ echo '### 📋 JSON Metadata ###'
 # Build JSON output with all metadata
 # Using jq for safe JSON construction to handle special characters
 # -c flag produces compact output (single line)
-METADATA_JSON=$(jq -nc \
+# Build base JSON first
+BASE_JSON=$(jq -nc \
   --arg repo_owner "${GITHUB_REPOSITORY_OWNER}" \
   --arg repo_name "${REPOSITORY_NAME}" \
   --arg repo_full "${GITHUB_REPOSITORY}" \
@@ -555,6 +764,15 @@ METADATA_JSON=$(jq -nc \
     }
   }')
 
+# Add gerrit_environment if available
+if [ "$HAS_GERRIT_DATA" = "true" ] && [ -n "$GERRIT_ENV_JSON" ]; then
+  METADATA_JSON=$(echo "$BASE_JSON" | jq \
+    --argjson gerrit_env "$GERRIT_ENV_JSON" \
+    '. + {gerrit_environment: $gerrit_env}')
+else
+  METADATA_JSON="$BASE_JSON"
+fi
+
 if [ "${DEBUG_MODE}" = "true" ]; then
   echo "Metadata JSON:"
   echo "${METADATA_JSON}" | jq .
@@ -595,6 +813,14 @@ echo "Commit: ${COMMIT_SHA_SHORT}"
 echo "Actor: ${GITHUB_ACTOR}"
 
 debug_log "Metadata extraction complete"
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+# Function to sanitize values for safe inclusion in markdown tables
+sanitize_table_value() {
+  echo "$1" | tr -d '\r' | tr '\n' ' ' | sed "s/\`/\\\`/g; s/|/\\|/g"
+}
 
 # ============================================================================
 # GITHUB STEP SUMMARY (Optional)
@@ -661,6 +887,38 @@ if [ "${GENERATE_SUMMARY}" = "true" ]; then
     echo '### 📄 Changed Files Outputs'
     echo "✅ changed_files: ${CHANGED_FILES}"
     echo "✅ changed_files_count: ${CHANGED_FILES_COUNT}"
+    echo ''
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
+
+# ============================================================================
+# GERRIT STEP SUMMARY (Optional)
+# ============================================================================
+if [ "${GERRIT_SUMMARY}" = "true" ] && [ "$HAS_GERRIT_DATA" = "true" ]; then
+  echo ""
+  echo "Generating Gerrit Parameters Summary..."
+
+  {
+    echo '### 📋 Gerrit Parameters'
+    echo ''
+    echo "**Source:** $(sanitize_table_value "${GERRIT_SOURCE}")"
+    echo ''
+    echo '| Gerrit Change Property | Value |'
+    echo '|------------------------|-------|'
+    echo "| branch | \`$(sanitize_table_value "${GERRIT_BRANCH}")\` |"
+    echo "| change_id | \`$(sanitize_table_value "${GERRIT_CHANGE_ID}")\` |"
+    echo "| change_number | \`$(sanitize_table_value "${GERRIT_CHANGE_NUMBER}")\` |"
+    echo "| change_url | \`$(sanitize_table_value "${GERRIT_CHANGE_URL}")\` |"
+    echo "| event_type | \`$(sanitize_table_value "${GERRIT_EVENT_TYPE}")\` |"
+    echo "| patchset_number | \`$(sanitize_table_value "${GERRIT_PATCHSET_NUMBER}")\` |"
+    echo "| patchset_revision | \`$(sanitize_table_value "${GERRIT_PATCHSET_REVISION}")\` |"
+    echo "| project | \`$(sanitize_table_value "${GERRIT_PROJECT}")\` |"
+    echo "| refspec | \`$(sanitize_table_value "${GERRIT_REFSPEC}")\` |"
+    # Conditionally include a truncated, escaped comment only when explicitly enabled
+    if [ "${GERRIT_INCLUDE_COMMENT:-false}" = "true" ]; then
+      TRUNCATED_COMMENT="$(printf "%s" "${GERRIT_COMMENT}" | cut -c 1-200)"
+      echo "| comment | \`$(sanitize_table_value "${TRUNCATED_COMMENT}")\` |"
+    fi
     echo ''
   } >> "$GITHUB_STEP_SUMMARY"
 fi

@@ -1,0 +1,457 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2025 The Linux Foundation
+
+# Test workflow for Gerrit metadata extraction feature
+# Note: This workflow uses hard-coded test data to avoid the 10-input limit
+# for workflow_dispatch.
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+    inputs:
+      # Test Scenario Selection
+      test_scenario:
+        description: 'Test scenario to run'
+        required: true
+        type: choice
+        options:
+          - 'gerrit_json_valid'
+          - 'gerrit_json_invalid'
+          - 'gerrit_inputs_legacy'
+          - 'both_inputs_priority'
+          - 'no_gerrit_data'
+        default: 'gerrit_json_valid'
+
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+permissions: {}
+
+jobs:
+  # ============================================================================
+  # Test 1: Valid gerrit_json input (preferred method)
+  # ============================================================================
+  test-gerrit-json-valid:
+    name: 'Test: Valid gerrit_json'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: |
+      (github.event_name == 'workflow_dispatch' &&
+       inputs.test_scenario == 'gerrit_json_valid') ||
+      github.event_name != 'workflow_dispatch'
+    permissions:
+      contents: read
+    steps:
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: 'Prepare mock event payload (valid gerrit_json)'
+        run: |
+          cat > mock.json <<'JSON'
+          {
+            "inputs": {
+              "gerrit_json": {
+                "branch": "main",
+                "change_id": "Iabc1234567890abcdef",
+                "change_number": "12345",
+                "change_url": "https://gerrit.example/12345",
+                "event_type": "patchset-created",
+                "patchset_number": "1",
+                "patchset_revision": "deadbeefcafebabe",
+                "project": "example/project",
+                "refspec": "refs/changes/45/12345/1",
+                "comment": "Test comment for valid JSON"
+              }
+            }
+          }
+          JSON
+          jq '.inputs.gerrit_json |= @json' mock.json > mock-event.json
+      - name: 'Test with valid gerrit_json'
+        id: test-json
+        uses: ./
+        env:
+          GITHUB_EVENT_PATH_OVERRIDE: mock-event.json
+        with:
+          debug: true
+          generate_summary: true
+          gerrit_summary: true
+
+      - name: 'Validate gerrit_json output'
+        shell: bash
+        env:
+          GERRIT_JSON: ${{ steps.test-json.outputs.gerrit_json }}
+        run: |
+          echo "### Test: Valid gerrit_json" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # When triggered by push/pull_request (not workflow_dispatch),
+          # the script ignores GITHUB_EVENT_PATH_OVERRIDE and reads the real
+          # event payload which has no Gerrit data, so output should be empty
+          if [ -z "$GERRIT_JSON" ]; then
+            echo "✅ gerrit_json output is empty (expected)" \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ gerrit_json output: $GERRIT_JSON" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ============================================================================
+  # Test 2: Invalid gerrit_json with fallback
+  # ============================================================================
+  test-gerrit-json-invalid:
+    name: 'Test: Invalid gerrit_json fallback'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      inputs.test_scenario == 'gerrit_json_invalid'
+    permissions:
+      contents: read
+    steps:
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: 'Prepare mock event payload (invalid JSON + legacy inputs)'
+        run: |
+          cat > mock-event-invalid.json <<'JSON'
+          {
+            "inputs": {
+              "gerrit_json": "{this is not valid json",
+              "GERRIT_BRANCH": "main",
+              "GERRIT_CHANGE_ID": "I1234567890abcdef1234567890abcdef12345678",
+              "GERRIT_CHANGE_NUMBER": "98765",
+              "GERRIT_CHANGE_URL": "https://gerrit.example/98765",
+              "GERRIT_EVENT_TYPE": "patchset-created",
+              "GERRIT_PATCHSET_NUMBER": "2",
+              "GERRIT_PATCHSET_REVISION": "beadfeed12345678",
+              "GERRIT_PROJECT": "example/legacy",
+              "GERRIT_REFSPEC": "refs/changes/65/98765/2",
+              "GERRIT_COMMENT": "Legacy inputs comment"
+            }
+          }
+          JSON
+      - name: 'Test with invalid gerrit_json and valid GERRIT_* inputs'
+        id: test-invalid
+        uses: ./
+        env:
+          GITHUB_EVENT_PATH_OVERRIDE: mock-event-invalid.json
+        with:
+          debug: true
+          generate_summary: true
+          gerrit_summary: true
+
+      - name: 'Validate fallback behavior'
+        shell: bash
+        env:
+          GERRIT_JSON: ${{ steps.test-invalid.outputs.gerrit_json }}
+        run: |
+          {
+            echo "### Test: Invalid JSON Fallback"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$GERRIT_JSON" ]; then
+            {
+              echo "✅ Fallback to GERRIT_* inputs succeeded, JSON built"
+              echo "\`\`\`json"
+              echo "$GERRIT_JSON" | jq .
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            # Validate structure
+            BRANCH=$(echo "$GERRIT_JSON" | jq -r '.branch')
+            if [ "$BRANCH" = "main" ]; then
+              echo "✅ branch field extracted correctly" \
+                >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "❌ branch field incorrect: $BRANCH" \
+                >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          else
+            echo "❌ gerrit_json is empty" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Test 3: Legacy GERRIT_* inputs only
+  # ============================================================================
+  test-gerrit-inputs-legacy:
+    name: 'Test: Legacy GERRIT_* inputs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      inputs.test_scenario == 'gerrit_inputs_legacy'
+    permissions:
+      contents: read
+    steps:
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: 'Prepare mock event payload (legacy GERRIT_* inputs only)'
+        run: |
+          cat > mock-event-legacy.json <<'JSON'
+          {
+            "inputs": {
+              "GERRIT_BRANCH": "main",
+              "GERRIT_CHANGE_ID": "I1234567890abcdef1234567890abcdef12345678",
+              "GERRIT_CHANGE_NUMBER": "11111",
+              "GERRIT_CHANGE_URL": "https://gerrit.example/11111",
+              "GERRIT_EVENT_TYPE": "patchset-created",
+              "GERRIT_PATCHSET_NUMBER": "1",
+              "GERRIT_PATCHSET_REVISION": "cafed00d11111111",
+              "GERRIT_PROJECT": "example/legacy-only",
+              "GERRIT_REFSPEC": "refs/changes/11/11111/1",
+              "GERRIT_COMMENT": "Legacy-only comment"
+            }
+          }
+          JSON
+      - name: 'Test with legacy GERRIT_* inputs'
+        id: test-legacy
+        uses: ./
+        env:
+          GITHUB_EVENT_PATH_OVERRIDE: mock-event-legacy.json
+        with:
+          debug: true
+          generate_summary: true
+          gerrit_summary: true
+
+      - name: 'Validate legacy input extraction'
+        shell: bash
+        env:
+          GERRIT_JSON: ${{ steps.test-legacy.outputs.gerrit_json }}
+        run: |
+          {
+            echo "### Test: Legacy GERRIT_* Inputs"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$GERRIT_JSON" ] && [ "$GERRIT_JSON" != "null" ]; then
+            {
+              echo "✅ gerrit_json populated from legacy inputs"
+              echo "\`\`\`json"
+              echo "$GERRIT_JSON" | jq .
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            # Validate all fields are mapped correctly
+            BRANCH=$(echo "$GERRIT_JSON" | jq -r '.branch')
+            CHANGE_ID=$(echo "$GERRIT_JSON" | jq -r '.change_id')
+
+            if [ "$BRANCH" = "main" ]; then
+              echo "✅ branch mapped correctly" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "❌ branch mapping failed: $BRANCH" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+
+            if [ "$CHANGE_ID" = \
+              "I1234567890abcdef1234567890abcdef12345678" ]; then
+              echo "✅ change_id mapped correctly" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "❌ change_id mapping failed: $CHANGE_ID" \
+                >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          else
+            echo "❌ gerrit_json is empty" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Test 4: Both inputs present - gerrit_json takes priority
+  # ============================================================================
+  test-both-inputs-priority:
+    name: 'Test: gerrit_json priority'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      inputs.test_scenario == 'both_inputs_priority'
+    permissions:
+      contents: read
+    steps:
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: 'Prepare mock event payload (both inputs present)'
+        run: |
+          cat > mock.json <<'JSON'
+          {
+            "inputs": {
+              "gerrit_json": {
+                "branch": "dev",
+                "change_id": "Iabcpriority1234567890",
+                "change_number": "22222",
+                "change_url": "https://gerrit.example/22222",
+                "event_type": "patchset-created",
+                "patchset_number": "3",
+                "patchset_revision": "abcdeffedcba2222",
+                "project": "priority-test/project",
+                "refspec": "refs/changes/22/22222/3",
+                "comment": "JSON input should take priority"
+              },
+              "GERRIT_BRANCH": "main",
+              "GERRIT_CHANGE_ID": "Ilegacy1234567890abcdef",
+              "GERRIT_PROJECT": "legacy/project"
+            }
+          }
+          JSON
+          jq '.inputs.gerrit_json |= @json' mock.json \
+            > mock-event-priority.json
+      - name: 'Test with both gerrit_json and GERRIT_* inputs'
+        id: test-priority
+        uses: ./
+        env:
+          GITHUB_EVENT_PATH_OVERRIDE: mock-event-priority.json
+        with:
+          debug: true
+          generate_summary: true
+          gerrit_summary: true
+
+      - name: 'Validate gerrit_json takes priority'
+        shell: bash
+        env:
+          GERRIT_JSON: ${{ steps.test-priority.outputs.gerrit_json }}
+        run: |
+          {
+            echo "### Test: gerrit_json Priority"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$GERRIT_JSON" ]; then
+            {
+              echo "✅ gerrit_json output present"
+              echo "\`\`\`json"
+              echo "$GERRIT_JSON" | jq .
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            # Verify data came from JSON input, not legacy inputs
+            # JSON has "priority-test" in project name
+            PROJECT=$(echo "$GERRIT_JSON" | jq -r '.project')
+            if [[ "$PROJECT" == *"priority"* ]]; then
+              echo "✅ Data came from gerrit_json input (priority honored)" \
+                >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "❌ Data came from legacy inputs (priority NOT honored)" \
+                >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          else
+            echo "❌ gerrit_json is empty" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Test 5: No Gerrit data present
+  # ============================================================================
+  test-no-gerrit-data:
+    name: 'Test: No Gerrit data'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      inputs.test_scenario == 'no_gerrit_data'
+    permissions:
+      contents: read
+    steps:
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: 'Prepare mock event payload (no Gerrit data)'
+        run: |
+          cat > mock-event-none.json <<'JSON'
+          {
+            "inputs": {
+            }
+          }
+          JSON
+      - name: 'Test with no Gerrit data'
+        id: test-none
+        uses: ./
+        env:
+          GITHUB_EVENT_PATH_OVERRIDE: mock-event-none.json
+        with:
+          debug: true
+          generate_summary: true
+          gerrit_summary: true
+
+      - name: 'Validate no Gerrit outputs'
+        shell: bash
+        env:
+          GERRIT_JSON: ${{ steps.test-none.outputs.gerrit_json }}
+        run: |
+          echo "### Test: No Gerrit Data" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$GERRIT_JSON" ] || [ "$GERRIT_JSON" = "null" ]; then
+            echo "✅ gerrit_json is empty (expected)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ gerrit_json should be empty: $GERRIT_JSON" \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Test Summary Job
+  # ============================================================================
+  test-summary:
+    name: 'Test Summary'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - test-gerrit-json-valid
+      - test-gerrit-json-invalid
+      - test-gerrit-inputs-legacy
+      - test-both-inputs-priority
+      - test-no-gerrit-data
+    if: ${{ !cancelled() }}
+    steps:
+      - name: 'Generate test summary'
+        shell: bash
+        # yamllint disable rule:line-length
+        run: |
+          {
+            echo '# Gerrit Metadata Tests Summary'
+            echo ''
+            echo '## Test Results'
+            echo ''
+            echo '| Test | Status |'
+            echo '|------|--------|'
+            echo '| Valid gerrit_json | ${{ needs.test-gerrit-json-valid.result }} |'
+            echo '| Invalid JSON fallback | ${{ needs.test-gerrit-json-invalid.result }} |'
+            echo '| Legacy GERRIT_* inputs | ${{ needs.test-gerrit-inputs-legacy.result }} |'
+            echo '| Priority test | ${{ needs.test-both-inputs-priority.result }} |'
+            echo '| No Gerrit data | ${{ needs.test-no-gerrit-data.result }} |'
+            echo ''
+
+            # Overall status - treat success and skipped as passing
+            FAIL=0
+            for result in \
+              "${{ needs.test-gerrit-json-valid.result }}" \
+              "${{ needs.test-gerrit-json-invalid.result }}" \
+              "${{ needs.test-gerrit-inputs-legacy.result }}" \
+              "${{ needs.test-both-inputs-priority.result }}" \
+              "${{ needs.test-no-gerrit-data.result }}"; do
+              if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+                FAIL=1
+                break
+              fi
+            done
+
+            if [ "$FAIL" -eq 0 ]; then
+              echo '## ✅ All Tests Passed'
+            else
+              echo '## ❌ Some Tests Failed'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

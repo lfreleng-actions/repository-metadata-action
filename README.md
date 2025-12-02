@@ -30,6 +30,8 @@ information.
 - 📋 **JSON Output**: All metadata in a single JSON object
 - 📄 **YAML Output**: All metadata in YAML format
 - 🔍 **Debug Mode**: Verbose logging for troubleshooting
+- 📋 **Gerrit Integration**: Automatic detection and processing of
+  Gerrit change metadata
 
 ## Usage Example
 
@@ -60,15 +62,17 @@ steps:
 
 <!-- markdownlint-disable MD013 -->
 
-| Variable Name    | Description                                            | Required | Default             |
-| ---------------- | ------------------------------------------------------ | -------- | ------------------- |
-| debug            | Enable debug mode for verbose output                   | No       | false               |
-| github_token     | GitHub token for API access (changed files)            | No       | ${{ github.token }} |
-| generate_summary | Generate summary in GITHUB_STEP_SUMMARY                | No       | false               |
-| artifact_upload  | Upload metadata as workflow artifact                   | No       | true                |
-| artifact_formats | Comma-separated list of formats to upload (json, yaml) | No       | json,yaml           |
-| change_detection | Changed files detection method: 'git' or 'github_api'  | No       | (auto)              |
-| git_fetch_depth  | Depth for git fetch --deepen in shallow clones         | No       | 15                  |
+| Variable Name          | Description                                                                                           | Required | Default             |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- | -------- | ------------------- |
+| debug                  | Enable debug mode for verbose output                                                                  | No       | false               |
+| github_token           | GitHub token for API access (changed files)                                                           | No       | ${{ github.token }} |
+| generate_summary       | Generate summary in GITHUB_STEP_SUMMARY                                                               | No       | false               |
+| gerrit_summary         | Generate Gerrit parameters summary in GITHUB_STEP_SUMMARY                                             | No       | true                |
+| gerrit_include_comment | Include Gerrit comment in summaries and JSON/YAML outputs (may contain sensitive data; use with care) | No       | false               |
+| artifact_upload        | Upload metadata as workflow artifact                                                                  | No       | true                |
+| artifact_formats       | Comma-separated list of formats to upload (json, yaml)                                                | No       | json,yaml           |
+| change_detection       | Changed files detection method: 'git' or 'github_api'                                                 | No       | (auto)              |
+| git_fetch_depth        | Depth for git fetch --deepen in shallow clones                                                        | No       | 15                  |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -192,6 +196,44 @@ steps:
 **Note**: Changed files detection requires checking out the repository
 with git history. For pull requests, it works best with the `github_token`
 input provided.
+
+### Gerrit Outputs
+
+<!-- markdownlint-disable MD013 -->
+
+| Variable Name | Description                                                           |
+| ------------- | --------------------------------------------------------------------- |
+| gerrit_json   | Gerrit metadata as JSON (from input or built from GERRIT_* variables) |
+
+<!-- markdownlint-enable MD013 -->
+
+**Note:** Gerrit outputs populate when the workflow triggers via
+`workflow_dispatch` with Gerrit inputs.
+
+The `gerrit_json` output provides a consistent JSON structure regardless of
+input method:
+
+- If `gerrit_json` input contains valid JSON, it passes through (with the
+  `comment` field removed unless you enable `gerrit_include_comment`)
+- If `gerrit_json` input contains invalid or missing JSON, the action builds
+  JSON from `GERRIT_*` variables
+- Downstream consumers always reference the same output
+
+**Example gerrit_json:**
+
+```json
+{
+  "branch": "main",
+  "change_id": "I1234567890abcdef1234567890abcdef12345678",
+  "change_number": "12345",
+  "change_url": "https://gerrit.example.com/r/c/test-project/+/12345",
+  "event_type": "patchset-created",
+  "patchset_number": "3",
+  "patchset_revision": "abcdef1234567890abcdef1234567890abcdef12",
+  "project": "test-project",
+  "refspec": "refs/changes/45/12345/3",
+}
+```
 
 ### JSON and YAML Outputs
 
@@ -539,6 +581,54 @@ steps:
       debug: true
 ```
 
+## Gerrit Integration
+
+This action provides comprehensive support for Gerrit-triggered workflows
+through automatic detection and processing of Gerrit change metadata.
+
+### Quick Start
+
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      gerrit_json:
+        description: 'Consolidated Gerrit metadata'
+        required: false
+        type: string
+
+jobs:
+  process-change:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 'Gather metadata'
+        id: metadata
+        uses: lfreleng-actions/repository-metadata-action@main
+        with:
+          gerrit_summary: 'true'
+          generate_summary: 'true'
+          gerrit_include_comment: 'true'
+
+      - name: 'Use Gerrit data'
+        run: |
+          echo "Change: ${{ steps.metadata.outputs.gerrit_json }}"
+```
+
+### Gerrit Features
+
+- ✅ **Dual Input Support**: Accepts both consolidated `gerrit_json` and
+  legacy `GERRIT_*` variables
+- ✅ **Automatic Detection**: Reads from workflow event payload - no manual
+  configuration needed
+- ✅ **Priority Handling**: `gerrit_json` takes precedence over individual
+  variables
+- ✅ **Fallback Support**: Falls back to legacy variables if JSON is invalid
+- ✅ **Summary Output**: Generates formatted markdown table in
+  GitHub Step Summary
+- ✅ **JSON/YAML Export**: Includes Gerrit metadata in artifact outputs
+
 ## Notes
 
 - The action uses `set -euo pipefail` for robust error handling
@@ -550,6 +640,13 @@ steps:
   environment variable, which may not be available in all contexts
 - The `github_token` input is optional but recommended for pull request
   changed files detection
+- Exclude sensitive Gerrit inputs (e.g., comment) from summaries and JSON/YAML
+  outputs by default. To include them, set `gerrit_include_comment: 'true'` in
+  trusted contexts.
+- For testing, inject mock workflow payloads by setting
+  `GITHUB_EVENT_PATH_OVERRIDE` to a JSON file path in tests. Do not use this in
+  production workflows; use this in CI/testing to simulate
+  `workflow_dispatch` inputs.
 
 ## License
 
