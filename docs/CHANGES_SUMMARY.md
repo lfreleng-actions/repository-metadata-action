@@ -460,6 +460,8 @@ chmod +x /usr/local/bin/yq
 
 ### Matching Interface
 
+<!-- markdownlint-disable MD060 -->
+
 | Feature         | repository-metadata-action | build-metadata-action  |
 | --------------- | -------------------------- | ---------------------- |
 | JSON output     | ✅ `metadata_json`          | ✅ `metadata_json`      |
@@ -468,6 +470,8 @@ chmod +x /usr/local/bin/yq
 | Default formats | `json,yaml`                | `json,yaml`            |
 | Artifact files  | `metadata.{json,yaml}`     | `metadata.{json,yaml}` |
 | Error handling  | Fail fast                  | Fail fast              |
+
+<!-- markdownlint-enable MD060 -->
 
 ### Benefits
 

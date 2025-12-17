@@ -47,7 +47,7 @@ jobs:
         with:
           debug: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          generate_summary: true
+          github_summary: true
 
       - name: 'Validate outputs'
         shell: bash
@@ -208,7 +208,7 @@ jobs:
         with:
           debug: true
           change_detection: git
-          generate_summary: false
+          github_summary: false
 
       - name: 'Validate Git fallback outputs'
         shell: bash
@@ -392,7 +392,7 @@ jobs:
         uses: ./
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          generate_summary: true
+          github_summary: true
 
       - name: 'Test cache with generated keys'
         uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
