@@ -36,14 +36,18 @@ metadata generated from the same source data.
 
 ### JSON vs YAML
 
-| Feature            | JSON             | YAML                |
-| ------------------ | ---------------- | ------------------- |
+<!-- markdownlint-disable MD060 -->
+
+| Feature            | JSON              | YAML                 |
+| ------------------ | ----------------- | -------------------- |
 | **Compactness**    | ✅ More compact   | ❌ More verbose      |
 | **Readability**    | ❌ Less readable  | ✅ More readable     |
 | **Parsing Speed**  | ✅ Faster         | ❌ Slower            |
 | **Comments**       | ❌ No support     | ✅ Supports comments |
-| **GitHub Actions** | ✅ Native support | ⚠️ Needs `yq`       |
-| **Best For**       | Automation, APIs | Humans, configs     |
+| **GitHub Actions** | ✅ Native support | ⚠️ Needs `yq`        |
+| **Best For**       | Automation, APIs  | Humans, configs      |
+
+<!-- markdownlint-enable MD060 -->
 
 **Recommendation**: Use JSON for automation, YAML for human review and
 debugging.
@@ -393,15 +397,19 @@ Or use Docker:
 
 Both actions now follow the same pattern:
 
-| Feature         | repository-metadata-action | build-metadata-action |
-| --------------- | -------------------------- | --------------------- |
-| JSON output     | ✅ `metadata_json`          | ✅ `metadata_json`     |
-| YAML output     | ✅ `metadata_yaml`          | ✅ `metadata_yaml`     |
-| Artifact upload | ✅ Configurable             | ✅ Configurable        |
-| Format control  | ✅ `artifact_formats`       | ✅ `artifact_formats`  |
-| Default formats | `json,yaml`                | `json,yaml`           |
-| Validation      | ✅ Built-in (via tools)     | ✅ Explicit validation |
-| Error handling  | ✅ Fail fast                | ✅ Fail fast           |
+<!-- markdownlint-disable MD060 -->
+
+| Feature         | repository-metadata-action | build-metadata-action  |
+| --------------- | -------------------------- | ---------------------- |
+| JSON output     | ✅ `metadata_json`         | ✅ `metadata_json`     |
+| YAML output     | ✅ `metadata_yaml`         | ✅ `metadata_yaml`     |
+| Artifact upload | ✅ Configurable            | ✅ Configurable        |
+| Format control  | ✅ `artifact_formats`      | ✅ `artifact_formats`  |
+| Default formats | `json,yaml`                | `json,yaml`            |
+| Validation      | ✅ Built-in (via tools)    | ✅ Explicit validation |
+| Error handling  | ✅ Fail fast               | ✅ Fail fast           |
+
+<!-- markdownlint-enable MD060 -->
 
 **Design Consistency**: Both actions share:
 
