@@ -431,11 +431,15 @@ Users can adopt YAML features when ready:
 
 If using self-hosted runners without `yq`:
 
+<!-- markdownlint-disable MD013 -->
+
 ```bash
 # Install yq v4
 wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
 chmod +x /usr/local/bin/yq
 ```
+
+<!-- markdownlint-enable MD013 -->
 
 ## Performance Impact
 
@@ -460,14 +464,18 @@ chmod +x /usr/local/bin/yq
 
 ### Matching Interface
 
+<!-- markdownlint-disable MD060 -->
+
 | Feature         | repository-metadata-action | build-metadata-action  |
 | --------------- | -------------------------- | ---------------------- |
-| JSON output     | ✅ `metadata_json`          | ✅ `metadata_json`      |
-| YAML output     | ✅ `metadata_yaml`          | ✅ `metadata_yaml`      |
-| Format control  | ✅ `artifact_formats`       | ✅ `artifact_formats`   |
+| JSON output     | ✅ `metadata_json`         | ✅ `metadata_json`     |
+| YAML output     | ✅ `metadata_yaml`         | ✅ `metadata_yaml`     |
+| Format control  | ✅ `artifact_formats`      | ✅ `artifact_formats`  |
 | Default formats | `json,yaml`                | `json,yaml`            |
 | Artifact files  | `metadata.{json,yaml}`     | `metadata.{json,yaml}` |
 | Error handling  | Fail fast                  | Fail fast              |
+
+<!-- markdownlint-enable MD060 -->
 
 ### Benefits
 
