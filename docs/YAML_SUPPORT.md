@@ -156,9 +156,9 @@ By default, artifacts include both JSON and YAML formats:
 ```yaml
 - uses: lfreleng-actions/repository-metadata-action@main
   # Creates artifact with:
-  # - metadata.json (compact JSON)
-  # - metadata-pretty.json (formatted JSON)
-  # - metadata.yaml (YAML format)
+  # - repository-metadata.json (compact JSON)
+  # - repository-metadata-pretty.json (formatted JSON)
+  # - repository-metadata.yaml (YAML format)
 ```
 
 ### Customize Artifact Formats
@@ -173,8 +173,8 @@ input:
   with:
     artifact_formats: json
   # Creates artifact with:
-  # - metadata.json
-  # - metadata-pretty.json
+  # - repository-metadata.json
+  # - repository-metadata-pretty.json
 ```
 
 #### YAML Format
@@ -184,7 +184,7 @@ input:
   with:
     artifact_formats: yaml
   # Creates artifact with:
-  # - metadata.yaml
+  # - repository-metadata.yaml
 ```
 
 #### Both Formats (Default)
@@ -194,9 +194,9 @@ input:
   with:
     artifact_formats: json,yaml
   # Creates artifact with:
-  # - metadata.json
-  # - metadata-pretty.json
-  # - metadata.yaml
+  # - repository-metadata.json
+  # - repository-metadata-pretty.json
+  # - repository-metadata.yaml
 ```
 
 ### Format Selection Use Cases
@@ -268,14 +268,14 @@ jobs:
       - name: "Process YAML artifact"
         run: |
           # Read from downloaded artifact
-          REPO_OWNER=$(yq eval '.repository.owner' metadata/metadata.yaml)
-          COMMIT_SHA=$(yq eval '.commit.sha' metadata/metadata.yaml)
+          REPO_OWNER=$(yq eval '.repository.owner' metadata/repository-metadata.yaml)
+          COMMIT_SHA=$(yq eval '.commit.sha' metadata/repository-metadata.yaml)
 
           echo "Repository: $REPO_OWNER"
           echo "Commit: $COMMIT_SHA"
 
           # Convert YAML to JSON if needed
-          yq eval -o=json metadata/metadata.yaml > metadata/converted.json
+          yq eval -o=json metadata/repository-metadata.yaml > metadata/converted.json
 
           # Query the converted JSON
           jq '.event.name' metadata/converted.json
@@ -415,7 +415,8 @@ Both actions now follow the same pattern:
 
 - Same input names (`artifact_formats`)
 - Same output names (`metadata_json`, `metadata_yaml`)
-- Same artifact file names (`metadata.json`, `metadata.yaml`, etc.)
+- Same artifact file names (`repository-metadata.json`,
+  `repository-metadata.yaml`, etc.)
 - Same error handling philosophy
 
 ## Best Practices
@@ -485,9 +486,9 @@ Both actions now follow the same pattern:
     METADATA: ${{ steps.metadata.outputs.metadata_yaml }}
   run: |
     # Process once, cache results
-    echo "$METADATA" > /tmp/metadata.yaml
-    yq eval '.repository.owner' /tmp/metadata.yaml > /tmp/owner.txt
-    yq eval '.commit.sha_short' /tmp/metadata.yaml > /tmp/sha.txt
+    echo "$METADATA" > /tmp/repository-metadata.yaml
+    yq eval '.repository.owner' /tmp/repository-metadata.yaml > /tmp/owner.txt
+    yq eval '.commit.sha_short' /tmp/repository-metadata.yaml > /tmp/sha.txt
 
 - name: Use cached values
   run: |
@@ -535,8 +536,8 @@ Both actions now follow the same pattern:
 
 # Good: Write to file first
 - run: |
-    echo '${{ steps.metadata.outputs.metadata_yaml }}' > metadata.yaml
-    yq eval '.repository.owner' metadata.yaml
+    echo '${{ steps.metadata.outputs.metadata_yaml }}' > repository-metadata.yaml
+    yq eval '.repository.owner' repository-metadata.yaml
 ```
 
 ### Artifact Format Not Applied

@@ -124,10 +124,10 @@ set_output "metadata_yaml" "${METADATA_YAML}"
 
 ```bash
 # Write JSON to file
-echo "${METADATA_JSON}" > "${ARTIFACT_DIR}/metadata.json"
+echo "${METADATA_JSON}" > "${ARTIFACT_DIR}/repository-metadata.json"
 
 # Pretty-print for human readability
-echo "${METADATA_JSON}" | jq . > "${ARTIFACT_DIR}/metadata-pretty.json"
+echo "${METADATA_JSON}" | jq . > "${ARTIFACT_DIR}/repository-metadata-pretty.json"
 ```
 
 **After**:
@@ -139,14 +139,14 @@ debug_log "Artifact formats: ${ARTIFACT_FORMATS}"
 
 # Write JSON files if requested
 if [[ "${ARTIFACT_FORMATS}" == *"json"* ]]; then
-  echo "${METADATA_JSON}" > "${ARTIFACT_DIR}/metadata.json"
+  echo "${METADATA_JSON}" > "${ARTIFACT_DIR}/repository-metadata.json"
 
-  echo "${METADATA_JSON}" | jq . > "${ARTIFACT_DIR}/metadata-pretty.json"
+  echo "${METADATA_JSON}" | jq . > "${ARTIFACT_DIR}/repository-metadata-pretty.json"
 fi
 
 # Write YAML file if requested
 if [[ "${ARTIFACT_FORMATS}" == *"yaml"* ]]; then
-  echo "${METADATA_YAML}" > "${ARTIFACT_DIR}/metadata.yaml"
+  echo "${METADATA_YAML}" > "${ARTIFACT_DIR}/repository-metadata.yaml"
 fi
 
 debug_log "Artifact files created: $(ls "${ARTIFACT_DIR}")"
@@ -319,24 +319,24 @@ Created comprehensive documentation covering:
 
 ```text
 repository-metadata-<job>-<suffix>/
-├── metadata.json           # Compact JSON
-├── metadata-pretty.json    # Pretty-printed JSON
-└── metadata.yaml           # YAML format
+├── repository-metadata.json           # Compact JSON
+├── repository-metadata-pretty.json    # Pretty-printed JSON
+└── repository-metadata.yaml           # YAML format
 ```
 
 ### JSON Format Artifacts (artifact_formats: json)
 
 ```text
 repository-metadata-<job>-<suffix>/
-├── metadata.json
-└── metadata-pretty.json
+├── repository-metadata.json
+└── repository-metadata-pretty.json
 ```
 
 ### YAML Format Artifacts (artifact_formats: yaml)
 
 ```text
 repository-metadata-<job>-<suffix>/
-└── metadata.yaml
+└── repository-metadata.yaml
 ```
 
 ## Error Handling
@@ -372,7 +372,7 @@ All commands must succeed:
 **Changes**:
 
 - New `metadata_yaml` output available
-- Artifacts now include `metadata.yaml` by default
+- Artifacts now include `repository-metadata.yaml` by default
 - All existing outputs remain unchanged
 - All existing inputs remain unchanged
 
@@ -451,12 +451,12 @@ chmod +x /usr/local/bin/yq
 
 ### Artifact Size
 
-| Format                  | Size (typical) |
-| ----------------------- | -------------- |
-| metadata.json           | 1-3 KB         |
-| metadata-pretty.json    | 2-5 KB         |
-| metadata.yaml           | 2-5 KB         |
-| **Total (all formats)** | 5-13 KB        |
+| Format                           | Size (typical) |
+| -------------------------------- | -------------- |
+| repository-metadata.json         | 1-3 KB         |
+| repository-metadata-pretty.json  | 2-5 KB         |
+| repository-metadata.yaml         | 2-5 KB         |
+| **Total (all formats)**          | 5-13 KB        |
 
 **Impact**: Negligible - well within GitHub's artifact limits.
 

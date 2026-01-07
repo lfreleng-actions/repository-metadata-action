@@ -18,9 +18,9 @@ inputs:
     description: 'Enable debug mode for verbose output'
     required: false
     default: 'false'
-  generate_summary:
+  github_summary:
     description: >-
-      Generate a summary of repository metadata in GITHUB_STEP_SUMMARY
+      Generate GitHub execution environment summary in GITHUB_STEP_SUMMARY
     required: false
     default: 'false'
   artifact_upload:
@@ -44,6 +44,22 @@ inputs:
       Depth for git fetch --deepen when shallow clone needs more history
     required: false
     default: '15'
+  gerrit_summary:
+    description: >-
+      Generate Gerrit parameters summary in GITHUB_STEP_SUMMARY
+    required: false
+    default: 'true'
+  files_summary:
+    description: >-
+      Generate changed files summary in GITHUB_STEP_SUMMARY
+    required: false
+    default: 'false'
+  gerrit_include_comment:
+    description: >-
+      Include Gerrit comment in summaries and JSON/YAML outputs
+      (may contain sensitive data; use with care)
+    required: false
+    default: 'false'
 
 outputs:
   # Repository outputs
@@ -157,6 +173,52 @@ outputs:
   changed_files_count:
     description: 'Number of changed files'
     value: ${{ steps.metadata.outputs.changed_files_count }}
+  changed_files_added:
+    description: 'List of added files (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_added }}
+  changed_files_added_count:
+    description: 'Number of added files'
+    value: ${{ steps.metadata.outputs.changed_files_added_count }}
+  changed_files_modified:
+    description: 'List of modified files (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_modified }}
+  changed_files_modified_count:
+    description: 'Number of modified files'
+    value: ${{ steps.metadata.outputs.changed_files_modified_count }}
+  changed_files_removed:
+    description: 'List of removed files (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_removed }}
+  changed_files_removed_count:
+    description: 'Number of removed files'
+    value: ${{ steps.metadata.outputs.changed_files_removed_count }}
+
+  # Changed files last commit outputs
+  changed_files_last_commit:
+    description: 'List of changed files in last commit (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit }}
+  changed_files_last_commit_count:
+    description: 'Number of changed files in last commit'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_count }}
+  changed_files_last_commit_added:
+    description: 'List of added files in last commit (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_added }}
+  changed_files_last_commit_added_count:
+    description: 'Number of added files in last commit'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_added_count }}
+  changed_files_last_commit_modified:
+    description: 'List of modified files in last commit (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_modified }}
+  changed_files_last_commit_modified_count:
+    description: 'Number of modified files in last commit'
+    # yamllint disable-line rule:line-length
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_modified_count }}
+  changed_files_last_commit_removed:
+    description: 'List of removed files in last commit (space-separated)'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_removed }}
+  changed_files_last_commit_removed_count:
+    # yamllint disable-line rule:line-length
+    description: 'Number of removed files in last commit'
+    value: ${{ steps.metadata.outputs.changed_files_last_commit_removed_count }}
 
   # JSON output
   metadata_json:
@@ -176,29 +238,56 @@ outputs:
     description: 'Unique suffix for artifact naming (to avoid conflicts)'
     value: ${{ steps.metadata.outputs.artifact_suffix }}
 
+  # Gerrit outputs
+  gerrit_json:
+    # yamllint disable-line rule:line-length
+    description: 'Gerrit metadata as JSON (from input or built from gerrit_to_platform inputs)'
+    value: ${{ steps.metadata.outputs.gerrit_json }}
+
 runs:
   using: 'composite'
   steps:
-    - name: 'GitHub Repository Metadata'
+    - name: 'Setup Python'
+      # yamllint disable-line rule:line-length
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+      with:
+        python-version: '3.11'
+
+    - name: 'Install uv'
+      # yamllint disable-line rule:line-length
+      uses: astral-sh/setup-uv@5f42d5af6c403a722299fda36d451c39f302a433 # v4.1.0
+      with:
+        enable-cache: false
+
+    - name: 'Install Python dependencies'
+      shell: bash
+      run: |
+        cd "${{ github.action_path }}"
+        uv pip install --system .
+
+    - name: 'Extract Repository Metadata'
       id: metadata
       shell: bash
       env:
         DEBUG_MODE: ${{ inputs.debug }}
         GITHUB_TOKEN_INPUT: ${{ inputs.github_token }}
-        GENERATE_SUMMARY: ${{ inputs.generate_summary }}
+        GITHUB_SUMMARY: ${{ inputs.github_summary }}
         ARTIFACT_UPLOAD: ${{ inputs.artifact_upload }}
         ARTIFACT_FORMATS: ${{ inputs.artifact_formats }}
         CHANGE_DETECTION: ${{ inputs.change_detection }}
         GIT_FETCH_DEPTH: ${{ inputs.git_fetch_depth }}
+        GERRIT_SUMMARY: ${{ inputs.gerrit_summary }}
+        FILES_SUMMARY: ${{ inputs.files_summary }}
+        GERRIT_INCLUDE_COMMENT: ${{ inputs.gerrit_include_comment }}
         REPO_VISIBILITY: ${{ github.event.repository.visibility }}
         GITHUB_ACTOR: ${{ github.actor }}
         GITHUB_ACTOR_ID: ${{ github.actor_id }}
         PR_HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
-        # Execute metadata extraction script
-        chmod +x "${{ github.action_path }}/scripts/extract-metadata.sh"
-        "${{ github.action_path }}/scripts/extract-metadata.sh"
+        # Execute Python metadata extraction
+        cd "${{ github.action_path }}"
+        python -m src.main
 
     - name: 'Upload metadata artifact'
       if: inputs.artifact_upload == 'true'
@@ -206,7 +295,7 @@ runs:
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         # yamllint disable-line rule:line-length
-        name: repository-metadata-${{ github.job }}-${{ steps.metadata.outputs.artifact_suffix }}
+        name: ${{ github.job }}-${{ steps.metadata.outputs.artifact_suffix }}
         # yamllint disable-line rule:line-length
         path: ${{ runner.temp }}/repository-metadata-${{ steps.metadata.outputs.artifact_suffix }}/
         if-no-files-found: warn

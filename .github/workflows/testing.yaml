@@ -47,7 +47,7 @@ jobs:
         with:
           debug: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          generate_summary: true
+          github_summary: true
 
       - name: 'Validate outputs'
         shell: bash
@@ -208,7 +208,7 @@ jobs:
         with:
           debug: true
           change_detection: git
-          generate_summary: false
+          github_summary: false
 
       - name: 'Validate Git fallback outputs'
         shell: bash
@@ -392,7 +392,7 @@ jobs:
         uses: ./
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          generate_summary: true
+          github_summary: true
 
       - name: 'Test cache with generated keys'
         uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
@@ -443,21 +443,22 @@ jobs:
 
       - name: 'Verify JSON-only artifact'
         shell: bash
+        # yamllint disable rule:line-length
         run: |
           artifact_path="${{ steps.json-only.outputs.artifact_path }}"
 
-          if [ ! -f "$artifact_path/metadata.json" ]; then
-            echo "❌ metadata.json not found"
+          if [ ! -f "$artifact_path/repository-metadata.json" ]; then
+            echo "❌ repository-metadata.json not found"
             exit 1
           fi
 
-          if [ ! -f "$artifact_path/metadata-pretty.json" ]; then
-            echo "❌ metadata-pretty.json not found"
+          if [ ! -f "$artifact_path/repository-metadata-pretty.json" ]; then
+            echo "❌ repository-metadata-pretty.json not found"
             exit 1
           fi
 
-          if [ -f "$artifact_path/metadata.yaml" ]; then
-            echo "❌ metadata.yaml should not exist for json-only format"
+          if [ -f "$artifact_path/repository-metadata.yaml" ]; then
+            echo "❌ repository-metadata.yaml should not exist for json-only format"
             exit 1
           fi
 
@@ -465,6 +466,7 @@ jobs:
             echo '## JSON-Only Artifact Test'
             echo '✅ Only JSON files created'
           } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
 
       - name: 'Test YAML-only artifacts'
         id: yaml-only
@@ -474,21 +476,22 @@ jobs:
 
       - name: 'Verify YAML-only artifact'
         shell: bash
+        # yamllint disable rule:line-length
         run: |
           artifact_path="${{ steps.yaml-only.outputs.artifact_path }}"
 
-          if [ -f "$artifact_path/metadata.json" ]; then
-            echo "❌ metadata.json should not exist for yaml-only format"
+          if [ -f "$artifact_path/repository-metadata.json" ]; then
+            echo "❌ repository-metadata.json should not exist for yaml-only format"
             exit 1
           fi
 
-          if [ -f "$artifact_path/metadata-pretty.json" ]; then
-            echo "❌ metadata-pretty.json should not exist for yaml-only format"
+          if [ -f "$artifact_path/repository-metadata-pretty.json" ]; then
+            echo "❌ repository-metadata-pretty.json should not exist for yaml-only format"
             exit 1
           fi
 
-          if [ ! -f "$artifact_path/metadata.yaml" ]; then
-            echo "❌ metadata.yaml not found"
+          if [ ! -f "$artifact_path/repository-metadata.yaml" ]; then
+            echo "❌ repository-metadata.yaml not found"
             exit 1
           fi
 
@@ -496,6 +499,7 @@ jobs:
             echo '## YAML-Only Artifact Test'
             echo '✅ Only YAML file created'
           } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
 
       - name: 'Test both formats (default)'
         id: both-formats
@@ -505,21 +509,22 @@ jobs:
 
       - name: 'Verify both formats artifact'
         shell: bash
+        # yamllint disable rule:line-length
         run: |
           artifact_path="${{ steps.both-formats.outputs.artifact_path }}"
 
-          if [ ! -f "$artifact_path/metadata.json" ]; then
-            echo "❌ metadata.json not found"
+          if [ ! -f "$artifact_path/repository-metadata.json" ]; then
+            echo "❌ repository-metadata.json not found"
             exit 1
           fi
 
-          if [ ! -f "$artifact_path/metadata-pretty.json" ]; then
-            echo "❌ metadata-pretty.json not found"
+          if [ ! -f "$artifact_path/repository-metadata-pretty.json" ]; then
+            echo "❌ repository-metadata-pretty.json not found"
             exit 1
           fi
 
-          if [ ! -f "$artifact_path/metadata.yaml" ]; then
-            echo "❌ metadata.yaml not found"
+          if [ ! -f "$artifact_path/repository-metadata.yaml" ]; then
+            echo "❌ repository-metadata.yaml not found"
             exit 1
           fi
 
@@ -527,3 +532,4 @@ jobs:
             echo '## Both Formats Artifact Test'
             echo '✅ All files created (JSON + YAML)'
           } >> "$GITHUB_STEP_SUMMARY"
+        # yamllint enable rule:line-length
