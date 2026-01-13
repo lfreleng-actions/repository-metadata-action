@@ -47,7 +47,7 @@ jobs:
     steps:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: 'Prepare mock event payload (valid gerrit_json)'
         run: |
@@ -114,7 +114,7 @@ jobs:
     steps:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: 'Prepare mock event payload (invalid JSON + legacy inputs)'
         run: |
@@ -195,7 +195,7 @@ jobs:
     steps:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       # yamllint disable-line rule:line-length
       - name: 'Prepare mock event payload (legacy gerrit_to_platform inputs only)'
@@ -283,7 +283,7 @@ jobs:
     steps:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: 'Prepare mock event payload (both inputs present)'
         run: |
@@ -369,7 +369,7 @@ jobs:
     steps:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: 'Prepare mock event payload (no Gerrit data)'
         run: |
