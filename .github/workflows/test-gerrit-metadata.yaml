@@ -6,6 +6,8 @@
 # Note: This workflow uses hard-coded test data to avoid the 10-input limit
 # for workflow_dispatch.
 
+name: 'Test Gerrit Metadata Extraction 🧪'
+
 # yamllint disable-line rule:truthy
 on:
   workflow_dispatch:
@@ -30,6 +32,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+
 jobs:
   # ============================================================================
   # Test 1: Valid gerrit_json input (preferred method)
@@ -48,6 +54,8 @@ jobs:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: 'Prepare mock event payload (valid gerrit_json)'
         run: |
@@ -115,6 +123,8 @@ jobs:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: 'Prepare mock event payload (invalid JSON + legacy inputs)'
         run: |
@@ -196,6 +206,8 @@ jobs:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # yamllint disable-line rule:line-length
       - name: 'Prepare mock event payload (legacy gerrit_to_platform inputs only)'
@@ -284,6 +296,8 @@ jobs:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: 'Prepare mock event payload (both inputs present)'
         run: |
@@ -370,6 +384,8 @@ jobs:
       - name: 'Checkout repository'
         # yamllint disable-line rule:line-length
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: 'Prepare mock event payload (no Gerrit data)'
         run: |
@@ -422,6 +438,13 @@ jobs:
     steps:
       - name: 'Generate test summary'
         shell: bash
+        env:
+          # Job results routed via env to avoid template injection
+          RESULT_JSON_VALID: ${{ needs.test-gerrit-json-valid.result }}
+          RESULT_JSON_INVALID: ${{ needs.test-gerrit-json-invalid.result }}
+          RESULT_INPUTS_LEGACY: ${{ needs.test-gerrit-inputs-legacy.result }}
+          RESULT_BOTH_PRIORITY: ${{ needs.test-both-inputs-priority.result }}
+          RESULT_NO_DATA: ${{ needs.test-no-gerrit-data.result }}
         # yamllint disable rule:line-length
         run: |
           {
@@ -431,21 +454,21 @@ jobs:
             echo ''
             echo '| Test | Status |'
             echo '|------|--------|'
-            echo '| Valid gerrit_json | ${{ needs.test-gerrit-json-valid.result }} |'
-            echo '| Invalid JSON fallback | ${{ needs.test-gerrit-json-invalid.result }} |'
-            echo '| Legacy gerrit_to_platform inputs | ${{ needs.test-gerrit-inputs-legacy.result }} |'
-            echo '| Priority test | ${{ needs.test-both-inputs-priority.result }} |'
-            echo '| No Gerrit data | ${{ needs.test-no-gerrit-data.result }} |'
+            echo "| Valid gerrit_json | ${RESULT_JSON_VALID} |"
+            echo "| Invalid JSON fallback | ${RESULT_JSON_INVALID} |"
+            echo "| Legacy gerrit_to_platform inputs | ${RESULT_INPUTS_LEGACY} |"
+            echo "| Priority test | ${RESULT_BOTH_PRIORITY} |"
+            echo "| No Gerrit data | ${RESULT_NO_DATA} |"
             echo ''
 
             # Overall status - treat success and skipped as passing
             FAIL=0
             for result in \
-              "${{ needs.test-gerrit-json-valid.result }}" \
-              "${{ needs.test-gerrit-json-invalid.result }}" \
-              "${{ needs.test-gerrit-inputs-legacy.result }}" \
-              "${{ needs.test-both-inputs-priority.result }}" \
-              "${{ needs.test-no-gerrit-data.result }}"; do
+              "${RESULT_JSON_VALID}" \
+              "${RESULT_JSON_INVALID}" \
+              "${RESULT_INPUTS_LEGACY}" \
+              "${RESULT_BOTH_PRIORITY}" \
+              "${RESULT_NO_DATA}"; do
               if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
                 FAIL=1
                 break
