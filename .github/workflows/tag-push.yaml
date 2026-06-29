@@ -13,6 +13,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: false
+
 jobs:
   validate_tag:
     name: 'Validate Tag'
@@ -53,7 +57,7 @@ jobs:
     needs: validate_tag
     runs-on: 'ubuntu-latest'
     permissions:
-      contents: write
+      contents: write  # Required to promote/publish the draft release
     timeout-minutes: 5
     steps:
       # Harden the runner used by this workflow
