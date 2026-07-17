@@ -108,7 +108,7 @@ class GerritExtractor(BaseExtractor):
         try:
             with open(self.config.GITHUB_EVENT_PATH, "rb") as f:
                 parser = ijson.items(f, "inputs")
-                inputs: dict[str, Any] = next(parser, {})
+                inputs: dict[str, Any] = next(parser, {}) or {}
 
             # Check for consolidated gerrit_json input first
             gerrit_json = inputs.get("gerrit_json")
