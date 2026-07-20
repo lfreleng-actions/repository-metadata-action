@@ -33,10 +33,7 @@ class YamlFormatter:
 
         # Format as YAML
         yaml_str = yaml.safe_dump(
-            data,
-            default_flow_style=False,
-            sort_keys=False,
-            allow_unicode=True
+            data, default_flow_style=False, sort_keys=False, allow_unicode=True
         )
 
         return str(yaml_str)

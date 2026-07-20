@@ -19,12 +19,7 @@ if TYPE_CHECKING:
 class RefExtractor(BaseExtractor):
     """Extracts branch and tag metadata."""
 
-    def __init__(
-        self,
-        config: "Config",
-        github_api: Optional["GitHubAPI"] = None,
-        **kwargs
-    ):
+    def __init__(self, config: "Config", github_api: Optional["GitHubAPI"] = None, **kwargs):
         """
         Initialize ref extractor.
 
@@ -50,7 +45,6 @@ class RefExtractor(BaseExtractor):
         is_default_branch = False
         is_main_branch = False
 
-        # Extract branch or tag name based on ref type
         ref_type = self.config.GITHUB_REF_TYPE
         ref_name = self.config.GITHUB_REF_NAME
 
@@ -79,7 +73,7 @@ class RefExtractor(BaseExtractor):
             branch_name=branch_name,
             tag_name=tag_name,
             is_default_branch=is_default_branch,
-            is_main_branch=is_main_branch
+            is_main_branch=is_main_branch,
         )
 
     def _check_default_branch(self, branch_name: str) -> bool:
@@ -103,9 +97,7 @@ class RefExtractor(BaseExtractor):
         if self.github_api and self.config.GITHUB_TOKEN:
             try:
                 self.debug("Auto-detecting default branch via GitHub API")
-                default_branch = self.github_api.get_default_branch(
-                    self.config.GITHUB_REPOSITORY
-                )
+                default_branch = self.github_api.get_default_branch(self.config.GITHUB_REPOSITORY)
                 is_default = branch_name == default_branch
                 if is_default:
                     self.info(f"Branch is the default branch: {default_branch}")

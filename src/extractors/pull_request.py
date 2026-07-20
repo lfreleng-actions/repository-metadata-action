@@ -9,10 +9,10 @@ Extracts PR-specific information from GitHub context and API.
 import re
 from typing import TYPE_CHECKING
 
+import ijson
+
 from ..models import PullRequestMetadata
 from .base import BaseExtractor
-
-import ijson
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -22,12 +22,7 @@ if TYPE_CHECKING:
 class PullRequestExtractor(BaseExtractor):
     """Extracts pull request metadata."""
 
-    def __init__(
-        self,
-        config: "Config",
-        github_api: "GitHubAPI | None" = None,
-        **kwargs
-    ):
+    def __init__(self, config: "Config", github_api: "GitHubAPI | None" = None, **kwargs):
         """
         Initialize pull request extractor.
 
@@ -53,7 +48,6 @@ class PullRequestExtractor(BaseExtractor):
             self.debug("Not a pull request event, returning empty metadata")
             return PullRequestMetadata()
 
-        # Extract PR number from GITHUB_REF or event payload
         pr_number = self._extract_pr_number()
         if not pr_number:
             self.warning("Could not extract PR number from GITHUB_REF or event payload")
@@ -61,7 +55,6 @@ class PullRequestExtractor(BaseExtractor):
 
         self.info(f"Pull request: #{pr_number}")
 
-        # Get source and target branches from environment
         source_branch = self.config.GITHUB_HEAD_REF
         target_branch = self.config.GITHUB_BASE_REF
 
@@ -80,10 +73,7 @@ class PullRequestExtractor(BaseExtractor):
         if self.github_api and self.config.GITHUB_TOKEN:
             try:
                 self.debug("Fetching PR metadata from GitHub API")
-                pr_data = self.github_api.get_pr_metadata(
-                    self.config.GITHUB_REPOSITORY,
-                    pr_number
-                )
+                pr_data = self.github_api.get_pr_metadata(self.config.GITHUB_REPOSITORY, pr_number)
                 commits_count = pr_data.get("commits_count")
                 if commits_count:
                     self.debug(f"PR has {commits_count} commits")
@@ -99,7 +89,7 @@ class PullRequestExtractor(BaseExtractor):
             source_branch=source_branch,
             target_branch=target_branch,
             commits_count=commits_count,
-            is_fork=is_fork
+            is_fork=is_fork,
         )
 
     def _extract_pr_number(self) -> int | None:

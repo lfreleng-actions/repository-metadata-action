@@ -19,12 +19,7 @@ if TYPE_CHECKING:
 class CommitExtractor(BaseExtractor):
     """Extracts commit metadata."""
 
-    def __init__(
-        self,
-        config: "Config",
-        git_ops: Optional["GitOperations"] = None,
-        **kwargs
-    ):
+    def __init__(self, config: "Config", git_ops: Optional["GitOperations"] = None, **kwargs):
         """
         Initialize commit extractor.
 
@@ -71,8 +66,5 @@ class CommitExtractor(BaseExtractor):
             self.debug("Git repository not available, skipping commit details")
 
         return CommitMetadata(
-            sha=commit_sha,
-            sha_short=commit_sha_short,
-            message=commit_message,
-            author=commit_author
+            sha=commit_sha, sha_short=commit_sha_short, message=commit_message, author=commit_author
         )

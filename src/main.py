@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from .config import get_config
+from .config import Config, get_config
 from .constants import GITHUB_OUTPUT_DELIMITER_RANDOM_BYTES
 from .exceptions import MetadataExtractionError
 from .extractors import (
@@ -40,14 +40,17 @@ def setup_logging() -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    config = get_config()
-    level = logging.DEBUG if config.DEBUG_MODE else logging.INFO
+    try:
+        config = get_config()
+        level = logging.DEBUG if config.DEBUG_MODE else logging.INFO
+    except MetadataExtractionError:
+        # Configuration errors are surfaced with proper handling inside
+        # main(); fall back to INFO here so logging is available to
+        # report them rather than raising before main()'s try block.
+        level = logging.INFO
 
-    # Configure logging format
     logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        level=level, format="%(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     return logging.getLogger("repository-metadata")
@@ -98,9 +101,9 @@ def print_summary(metadata: CompleteMetadata) -> None:
     Args:
         metadata: Complete metadata object
     """
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Repository Metadata Extraction Complete")
-    print("="*60)
+    print("=" * 60)
     print(f"Repository: {metadata.repository.full_name}")
     print(f"Event: {metadata.event.name}")
     print(f"Commit: {metadata.commit.sha_short}")
@@ -118,9 +121,203 @@ def print_summary(metadata: CompleteMetadata) -> None:
     if metadata.gerrit_environment.change_id:
         print(f"Gerrit Change-ID: {metadata.gerrit_environment.change_id}")
     elif metadata.gerrit_environment.source != "none":
-        print(f"Gerrit Change-ID: N/A")
+        print("Gerrit Change-ID: N/A")
 
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
+
+
+def _init_github_api(config: Config, logger: logging.Logger) -> GitHubAPI | None:
+    """
+    Initialize the GitHub API client if a token is available.
+
+    Args:
+        config: Action configuration
+        logger: Logger instance
+
+    Returns:
+        A GitHubAPI client, or None when no token is set or init fails
+    """
+    if not config.GITHUB_TOKEN:
+        return None
+    try:
+        github_api = GitHubAPI(config.GITHUB_TOKEN, logger=logger)
+        logger.debug("GitHub API client initialized")
+        return github_api
+    except Exception as e:
+        logger.warning(f"Failed to initialize GitHub API: {e}")
+        return None
+
+
+def _extract_metadata(
+    config: Config,
+    github_api: GitHubAPI | None,
+    git_ops: GitOperations,
+    logger: logging.Logger,
+) -> CompleteMetadata:
+    """
+    Run every extractor and combine the results.
+
+    Args:
+        config: Action configuration
+        github_api: Optional GitHub API client
+        git_ops: Git operations helper
+        logger: Logger instance
+
+    Returns:
+        The combined CompleteMetadata object
+    """
+    logger.info("Extracting repository metadata...")
+    repository = RepositoryExtractor(config, github_api, logger=logger).extract()
+
+    logger.info("Extracting event metadata...")
+    event = EventExtractor(config, logger=logger).extract()
+
+    logger.info("Extracting ref metadata...")
+    ref = RefExtractor(config, github_api, logger=logger).extract()
+
+    logger.info("Extracting commit metadata...")
+    commit = CommitExtractor(config, git_ops, logger=logger).extract()
+
+    logger.info("Extracting pull request metadata...")
+    pull_request = PullRequestExtractor(config, github_api, logger=logger).extract()
+
+    logger.info("Extracting actor metadata...")
+    actor = ActorExtractor(config, logger=logger).extract()
+
+    logger.info("Generating cache keys...")
+    cache = CacheExtractor(config, logger=logger).extract()
+
+    logger.info("Detecting changed files...")
+    changed_files = ChangedFilesExtractor(config, github_api, git_ops, logger=logger).extract()
+
+    logger.info("Detecting changed files in last commit...")
+    changed_files_last_commit = ChangedFilesLastCommitExtractor(
+        config, git_ops, logger=logger
+    ).extract()
+
+    logger.info("Checking for Gerrit metadata...")
+    gerrit = GerritExtractor(config, git_ops, logger=logger).extract()
+
+    return CompleteMetadata(
+        repository=repository,
+        event=event,
+        ref=ref,
+        commit=commit,
+        pull_request=pull_request,
+        actor=actor,
+        cache=cache,
+        changed_files=changed_files,
+        changed_files_last_commit=changed_files_last_commit,
+        gerrit_environment=gerrit,
+    )
+
+
+def _write_outputs(metadata: CompleteMetadata, config: Config, logger: logging.Logger) -> None:
+    """
+    Write GitHub Action outputs, including formatted JSON and YAML.
+
+    Args:
+        metadata: Combined metadata
+        config: Action configuration
+        logger: Logger instance
+    """
+    logger.info("Generating GitHub Action outputs...")
+    outputs = metadata.to_action_outputs(include_comment=config.GERRIT_INCLUDE_COMMENT)
+
+    json_formatter = JsonFormatter()
+    yaml_formatter = YamlFormatter()
+
+    outputs["metadata_json"] = json_formatter.format_compact(
+        metadata, include_comment=config.GERRIT_INCLUDE_COMMENT
+    )
+    outputs["metadata_yaml"] = yaml_formatter.format(
+        metadata, include_comment=config.GERRIT_INCLUDE_COMMENT
+    )
+
+    write_github_output(outputs, config.GITHUB_OUTPUT)
+    logger.info(f"Outputs written to {config.GITHUB_OUTPUT}")
+
+
+def _write_summaries(metadata: CompleteMetadata, config: Config, logger: logging.Logger) -> None:
+    """
+    Write optional GitHub Step Summaries.
+
+    GitHub, Gerrit, and Files summaries can be enabled independently.
+
+    Args:
+        metadata: Combined metadata
+        config: Action configuration
+        logger: Logger instance
+    """
+    if not config.GITHUB_STEP_SUMMARY:
+        return
+
+    markdown_formatter = MarkdownFormatter()
+
+    # Generate GitHub summary
+    if config.GITHUB_SUMMARY:
+        logger.info("Generating GitHub execution environment summary...")
+        github_summary = markdown_formatter.format(
+            metadata,
+            include_gerrit=False,
+            include_comment=config.GERRIT_INCLUDE_COMMENT,
+        )
+        write_step_summary(github_summary + "\n", config.GITHUB_STEP_SUMMARY)
+        logger.info("GitHub summary generated")
+
+    # Generate Gerrit summary (independent of GitHub summary)
+    # Always generate when enabled, even if no Gerrit data found
+    if config.GERRIT_SUMMARY:
+        logger.info("Generating Gerrit parameters summary...")
+        gerrit_section = markdown_formatter.format_gerrit_section(
+            metadata, include_comment=config.GERRIT_INCLUDE_COMMENT
+        )
+        write_step_summary(gerrit_section + "\n", config.GITHUB_STEP_SUMMARY)
+        logger.info("Gerrit summary generated")
+
+    # Generate Files summary (independent of GitHub summary)
+    # Only generate if there are actually changed files to display
+    if config.FILES_SUMMARY and metadata.changed_files.count > 0:
+        logger.info("Generating changed files summary...")
+        files_section = markdown_formatter.format_files_section(metadata)
+        write_step_summary(files_section + "\n", config.GITHUB_STEP_SUMMARY)
+        logger.info("Files summary generated")
+
+    # Generate Last Commit Files summary when Gerrit data is present
+    # Only generate if there are changed files in last commit and Gerrit data exists
+    if (
+        config.GERRIT_SUMMARY
+        and metadata.gerrit_environment.change_id
+        and metadata.changed_files_last_commit.count > 0
+    ):
+        logger.info("Generating last commit changed files summary...")
+        last_commit_files_section = markdown_formatter.format_last_commit_files_section(metadata)
+        write_step_summary(last_commit_files_section + "\n", config.GITHUB_STEP_SUMMARY)
+        logger.info("Last commit files summary generated")
+
+
+def _write_artifacts(metadata: CompleteMetadata, config: Config, logger: logging.Logger) -> None:
+    """
+    Generate optional metadata artifacts and record their outputs.
+
+    Args:
+        metadata: Combined metadata
+        config: Action configuration
+        logger: Logger instance
+    """
+    if not config.ARTIFACT_UPLOAD:
+        return
+
+    logger.info("Generating metadata artifacts...")
+    artifact_gen = ArtifactGenerator(config)
+    artifact_path = artifact_gen.generate(metadata)
+
+    artifact_outputs = {
+        "artifact_path": str(artifact_path),
+        "artifact_suffix": artifact_gen.suffix,
+    }
+    write_github_output(artifact_outputs, config.GITHUB_OUTPUT)
+    logger.info(f"Artifacts generated at: {artifact_path}")
 
 
 def main() -> int:
@@ -138,20 +335,10 @@ def main() -> int:
     logger.info("Starting repository metadata extraction")
 
     try:
-        # Load configuration
         config = get_config()
 
         # Initialize GitHub API client with context manager for proper cleanup
-        github_api: GitHubAPI | None = None
-        if config.GITHUB_TOKEN:
-            try:
-                github_api = GitHubAPI(config.GITHUB_TOKEN, logger=logger)
-                logger.debug("GitHub API client initialized")
-            except Exception as e:
-                logger.warning(f"Failed to initialize GitHub API: {e}")
-                github_api = None
-
-        # Use context manager if github_api was initialized
+        github_api = _init_github_api(config, logger)
         github_api_context = github_api if github_api else _NullContextManager()
 
         with github_api_context:
@@ -161,130 +348,14 @@ def main() -> int:
             else:
                 logger.debug("No git repository available")
 
-            # Extract all metadata components
-            logger.info("Extracting repository metadata...")
-            repository = RepositoryExtractor(config, github_api, logger=logger).extract()
-
-            logger.info("Extracting event metadata...")
-            event = EventExtractor(config, logger=logger).extract()
-
-            logger.info("Extracting ref metadata...")
-            ref = RefExtractor(config, github_api, logger=logger).extract()
-
-            logger.info("Extracting commit metadata...")
-            commit = CommitExtractor(config, git_ops, logger=logger).extract()
-
-            logger.info("Extracting pull request metadata...")
-            pull_request = PullRequestExtractor(config, github_api, logger=logger).extract()
-
-            logger.info("Extracting actor metadata...")
-            actor = ActorExtractor(config, logger=logger).extract()
-
-            logger.info("Generating cache keys...")
-            cache = CacheExtractor(config, logger=logger).extract()
-
-            logger.info("Detecting changed files...")
-            changed_files = ChangedFilesExtractor(config, github_api, git_ops, logger=logger).extract()
-
-            logger.info("Detecting changed files in last commit...")
-            changed_files_last_commit = ChangedFilesLastCommitExtractor(config, git_ops, logger=logger).extract()
-
-            logger.info("Checking for Gerrit metadata...")
-            gerrit = GerritExtractor(config, git_ops, logger=logger).extract()
-
-            # Combine into complete metadata
-            metadata = CompleteMetadata(
-                repository=repository,
-                event=event,
-                ref=ref,
-                commit=commit,
-                pull_request=pull_request,
-                actor=actor,
-                cache=cache,
-                changed_files=changed_files,
-                changed_files_last_commit=changed_files_last_commit,
-                gerrit_environment=gerrit
-            )
-
+            metadata = _extract_metadata(config, github_api, git_ops, logger)
             logger.info("Metadata extraction complete")
 
-            # Generate outputs
-            logger.info("Generating GitHub Action outputs...")
-            outputs = metadata.to_action_outputs(include_comment=config.GERRIT_INCLUDE_COMMENT)
+            _write_outputs(metadata, config, logger)
+            _write_summaries(metadata, config, logger)
+            _write_artifacts(metadata, config, logger)
 
-            # Add formatted JSON and YAML outputs
-            json_formatter = JsonFormatter()
-            yaml_formatter = YamlFormatter()
-
-            outputs["metadata_json"] = json_formatter.format_compact(metadata, include_comment=config.GERRIT_INCLUDE_COMMENT)
-            outputs["metadata_yaml"] = yaml_formatter.format(metadata, include_comment=config.GERRIT_INCLUDE_COMMENT)
-
-            # Write outputs to GITHUB_OUTPUT
-            write_github_output(outputs, config.GITHUB_OUTPUT)
-            logger.info(f"Outputs written to {config.GITHUB_OUTPUT}")
-
-            # Generate optional GitHub Step Summaries
-            # GitHub and Gerrit summaries can be enabled independently
-            if config.GITHUB_STEP_SUMMARY:
-                markdown_formatter = MarkdownFormatter()
-
-                # Generate GitHub summary
-                if config.GITHUB_SUMMARY:
-                    logger.info("Generating GitHub execution environment summary...")
-                    github_summary = markdown_formatter.format(
-                        metadata,
-                        include_gerrit=False,
-                        include_comment=config.GERRIT_INCLUDE_COMMENT
-                    )
-                    write_step_summary(github_summary, config.GITHUB_STEP_SUMMARY)
-                    logger.info("GitHub summary generated")
-
-                # Generate Gerrit summary (independent of GitHub summary)
-                # Always generate when enabled, even if no Gerrit data found
-                if config.GERRIT_SUMMARY:
-                    logger.info("Generating Gerrit parameters summary...")
-                    gerrit_section = markdown_formatter._format_gerrit_section(
-                        metadata,
-                        include_comment=config.GERRIT_INCLUDE_COMMENT
-                    )
-                    write_step_summary(gerrit_section + "\n", config.GITHUB_STEP_SUMMARY)
-                    logger.info("Gerrit summary generated")
-
-                # Generate Files summary (independent of GitHub summary)
-                # Only generate if there are actually changed files to display
-                if config.FILES_SUMMARY and metadata.changed_files.count > 0:
-                    logger.info("Generating changed files summary...")
-                    files_section = markdown_formatter._format_files_section(metadata)
-                    write_step_summary(files_section + "\n", config.GITHUB_STEP_SUMMARY)
-                    logger.info("Files summary generated")
-
-                # Generate Last Commit Files summary when Gerrit data is present
-                # Only generate if there are changed files in last commit and Gerrit data exists
-                if (config.GERRIT_SUMMARY and
-                    metadata.gerrit_environment.change_id and
-                    metadata.changed_files_last_commit.count > 0):
-                    logger.info("Generating last commit changed files summary...")
-                    last_commit_files_section = markdown_formatter._format_last_commit_files_section(metadata)
-                    write_step_summary(last_commit_files_section + "\n", config.GITHUB_STEP_SUMMARY)
-                    logger.info("Last commit files summary generated")
-
-            # Generate optional artifacts
-            if config.ARTIFACT_UPLOAD:
-                logger.info("Generating metadata artifacts...")
-                artifact_gen = ArtifactGenerator(config)
-                artifact_path = artifact_gen.generate(metadata)
-
-                # Add artifact outputs
-                artifact_outputs = {
-                    "artifact_path": str(artifact_path),
-                    "artifact_suffix": artifact_gen.suffix
-                }
-                write_github_output(artifact_outputs, config.GITHUB_OUTPUT)
-                logger.info(f"Artifacts generated at: {artifact_path}")
-
-            # Print summary to console
             print_summary(metadata)
-
             logger.info("Repository metadata extraction completed successfully")
 
         return 0
@@ -301,8 +372,10 @@ def main() -> int:
 
 class _NullContextManager:
     """Null context manager for when GitHub API is not initialized."""
+
     def __enter__(self) -> None:
         return None
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> Literal[False]:
         return False
 

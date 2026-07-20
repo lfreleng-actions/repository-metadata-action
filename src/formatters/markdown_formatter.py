@@ -15,7 +15,12 @@ if TYPE_CHECKING:
 class MarkdownFormatter:
     """Formats metadata as Markdown for GitHub Step Summary."""
 
-    def format(self, metadata: "CompleteMetadata", include_gerrit: bool = False, include_comment: bool = False) -> str:
+    def format(
+        self,
+        metadata: "CompleteMetadata",
+        include_gerrit: bool = False,
+        include_comment: bool = False,
+    ) -> str:
         """
         Format metadata as Markdown.
 
@@ -58,8 +63,8 @@ class MarkdownFormatter:
 
         # Branch/Tag section
         ref_data = {
-            "branch_name": metadata.ref.branch_name or '',
-            "tag_name": metadata.ref.tag_name or '',
+            "branch_name": metadata.ref.branch_name or "",
+            "tag_name": metadata.ref.tag_name or "",
             "is_default_branch": str(metadata.ref.is_default_branch).lower(),
             "is_main_branch": str(metadata.ref.is_main_branch).lower(),
         }
@@ -69,25 +74,27 @@ class MarkdownFormatter:
         commit_data = {
             "commit_sha": metadata.commit.sha,
             "commit_sha_short": metadata.commit.sha_short,
-            "commit_message": metadata.commit.message or '',
-            "commit_author": metadata.commit.author or '',
+            "commit_message": metadata.commit.message or "",
+            "commit_author": metadata.commit.author or "",
         }
         sections.extend(self._format_table("Commit", commit_data))
 
         # Pull Request section
         pr_data = {
-            "pr_number": str(metadata.pull_request.number) if metadata.pull_request.number else '',
-            "pr_source_branch": metadata.pull_request.source_branch or '',
-            "pr_target_branch": metadata.pull_request.target_branch or '',
+            "pr_number": str(metadata.pull_request.number) if metadata.pull_request.number else "",
+            "pr_source_branch": metadata.pull_request.source_branch or "",
+            "pr_target_branch": metadata.pull_request.target_branch or "",
             "is_fork": str(metadata.pull_request.is_fork).lower(),
-            "pr_commits_count": str(metadata.pull_request.commits_count) if metadata.pull_request.commits_count else '',
+            "pr_commits_count": str(metadata.pull_request.commits_count)
+            if metadata.pull_request.commits_count
+            else "",
         }
         sections.extend(self._format_table("Pull Request", pr_data))
 
         # Actor section
         actor_data = {
             "actor": metadata.actor.name,
-            "actor_id": str(metadata.actor.id) if metadata.actor.id else '',
+            "actor_id": str(metadata.actor.id) if metadata.actor.id else "",
         }
         sections.extend(self._format_table("Actor", actor_data))
 
@@ -100,11 +107,13 @@ class MarkdownFormatter:
 
         # Gerrit section (optional)
         if include_gerrit and metadata.gerrit_environment:
-            sections.append(self._format_gerrit_section(metadata, include_comment=include_comment))
+            sections.append(self.format_gerrit_section(metadata, include_comment=include_comment))
 
         return "\n".join(sections)
 
-    def _format_gerrit_section(self, metadata: "CompleteMetadata", include_comment: bool = False) -> str:
+    def format_gerrit_section(
+        self, metadata: "CompleteMetadata", include_comment: bool = False
+    ) -> str:
         """
         Format Gerrit parameters section.
 
@@ -118,10 +127,9 @@ class MarkdownFormatter:
         gerrit = metadata.gerrit_environment
         lines = []
 
-        lines.append("## ℹ️ Gerrit Parameters")
+        lines.append("## ℹ️ Gerrit Parameters")  # noqa: RUF001
         lines.append("")
 
-        # Define all fields to check
         fields = [
             ("branch", gerrit.branch),
             ("change_id", gerrit.change_id),
@@ -170,7 +178,7 @@ class MarkdownFormatter:
 
         return "\n".join(lines)
 
-    def _format_files_section(self, metadata: "CompleteMetadata") -> str:
+    def format_files_section(self, metadata: "CompleteMetadata") -> str:
         """
         Format changed files section.
 
@@ -197,7 +205,11 @@ class MarkdownFormatter:
         lines.append("")
 
         # Categorized counts table
-        if changed_files.added_count > 0 or changed_files.modified_count > 0 or changed_files.removed_count > 0:
+        if (
+            changed_files.added_count > 0
+            or changed_files.modified_count > 0
+            or changed_files.removed_count > 0
+        ):
             lines.append("| Category | Count |")
             lines.append("| -------- | ----- |")
             if changed_files.added_count > 0:
@@ -214,8 +226,10 @@ class MarkdownFormatter:
         if changed_files.added:
             lines.append("### ✅ Added Files")
             lines.append("")
-            for file in changed_files.added[:max_files_to_show]:
-                lines.append(f"- `{self._escape_markdown(file)}`")
+            lines.extend(
+                f"- `{self._escape_markdown(file)}`"
+                for file in changed_files.added[:max_files_to_show]
+            )
             if len(changed_files.added) > max_files_to_show:
                 lines.append(f"- ... and {len(changed_files.added) - max_files_to_show} more")
             lines.append("")
@@ -223,8 +237,10 @@ class MarkdownFormatter:
         if changed_files.modified:
             lines.append("### ✏️ Modified Files")
             lines.append("")
-            for file in changed_files.modified[:max_files_to_show]:
-                lines.append(f"- `{self._escape_markdown(file)}`")
+            lines.extend(
+                f"- `{self._escape_markdown(file)}`"
+                for file in changed_files.modified[:max_files_to_show]
+            )
             if len(changed_files.modified) > max_files_to_show:
                 lines.append(f"- ... and {len(changed_files.modified) - max_files_to_show} more")
             lines.append("")
@@ -232,15 +248,17 @@ class MarkdownFormatter:
         if changed_files.removed:
             lines.append("### ❌ Removed Files")
             lines.append("")
-            for file in changed_files.removed[:max_files_to_show]:
-                lines.append(f"- `{self._escape_markdown(file)}`")
+            lines.extend(
+                f"- `{self._escape_markdown(file)}`"
+                for file in changed_files.removed[:max_files_to_show]
+            )
             if len(changed_files.removed) > max_files_to_show:
                 lines.append(f"- ... and {len(changed_files.removed) - max_files_to_show} more")
             lines.append("")
 
         return "\n".join(lines)
 
-    def _format_last_commit_files_section(self, metadata: "CompleteMetadata") -> str:
+    def format_last_commit_files_section(self, metadata: "CompleteMetadata") -> str:
         """
         Format changed files from last commit section.
 
@@ -267,7 +285,11 @@ class MarkdownFormatter:
         lines.append("")
 
         # Categorized counts table
-        if changed_files.added_count > 0 or changed_files.modified_count > 0 or changed_files.removed_count > 0:
+        if (
+            changed_files.added_count > 0
+            or changed_files.modified_count > 0
+            or changed_files.removed_count > 0
+        ):
             lines.append("| Category | Count |")
             lines.append("| -------- | ----- |")
             if changed_files.added_count > 0:
@@ -284,8 +306,10 @@ class MarkdownFormatter:
         if changed_files.added:
             lines.append("### ✅ Added Files")
             lines.append("")
-            for file in changed_files.added[:max_files_to_show]:
-                lines.append(f"- `{self._escape_markdown(file)}`")
+            lines.extend(
+                f"- `{self._escape_markdown(file)}`"
+                for file in changed_files.added[:max_files_to_show]
+            )
             if len(changed_files.added) > max_files_to_show:
                 lines.append(f"- ... and {len(changed_files.added) - max_files_to_show} more")
             lines.append("")
@@ -293,8 +317,10 @@ class MarkdownFormatter:
         if changed_files.modified:
             lines.append("### ✏️ Modified Files")
             lines.append("")
-            for file in changed_files.modified[:max_files_to_show]:
-                lines.append(f"- `{self._escape_markdown(file)}`")
+            lines.extend(
+                f"- `{self._escape_markdown(file)}`"
+                for file in changed_files.modified[:max_files_to_show]
+            )
             if len(changed_files.modified) > max_files_to_show:
                 lines.append(f"- ... and {len(changed_files.modified) - max_files_to_show} more")
             lines.append("")
@@ -302,8 +328,10 @@ class MarkdownFormatter:
         if changed_files.removed:
             lines.append("### ❌ Removed Files")
             lines.append("")
-            for file in changed_files.removed[:max_files_to_show]:
-                lines.append(f"- `{self._escape_markdown(file)}`")
+            lines.extend(
+                f"- `{self._escape_markdown(file)}`"
+                for file in changed_files.removed[:max_files_to_show]
+            )
             if len(changed_files.removed) > max_files_to_show:
                 lines.append(f"- ... and {len(changed_files.removed) - max_files_to_show} more")
             lines.append("")

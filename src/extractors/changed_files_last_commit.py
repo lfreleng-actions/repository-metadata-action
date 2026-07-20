@@ -19,12 +19,7 @@ if TYPE_CHECKING:
 class ChangedFilesLastCommitExtractor(BaseExtractor):
     """Detects changed files in the last commit (HEAD)."""
 
-    def __init__(
-        self,
-        config: "Config",
-        git_ops: "GitOperations | None" = None,
-        **kwargs
-    ):
+    def __init__(self, config: "Config", git_ops: "GitOperations | None" = None, **kwargs):
         """
         Initialize changed files last commit extractor.
 
@@ -53,16 +48,9 @@ class ChangedFilesLastCommitExtractor(BaseExtractor):
         # Only attempt extraction if we have git operations available
         if not self.git_ops or not self.git_ops.has_git_repo():
             self.debug("No git repository available, skipping last commit file detection")
-            return ChangedFilesMetadata(
-                count=0,
-                files=[],
-                added=[],
-                modified=[],
-                removed=[]
-            )
+            return ChangedFilesMetadata(count=0, files=[], added=[], modified=[], removed=[])
 
         try:
-            # Get categorized files from the last commit
             categorized = self.git_ops.get_commit_files_categorized("HEAD")
 
             added = categorized.get("added", [])
@@ -82,19 +70,8 @@ class ChangedFilesLastCommitExtractor(BaseExtractor):
 
         except Exception as e:
             self.logger.warning(f"Failed to get changed files from last commit: {e}")
-            # Return empty metadata on failure
-            return ChangedFilesMetadata(
-                count=0,
-                files=[],
-                added=[],
-                modified=[],
-                removed=[]
-            )
+            return ChangedFilesMetadata(count=0, files=[], added=[], modified=[], removed=[])
 
         return ChangedFilesMetadata(
-            count=len(files),
-            files=files,
-            added=added,
-            modified=modified,
-            removed=removed
+            count=len(files), files=files, added=added, modified=modified, removed=removed
         )

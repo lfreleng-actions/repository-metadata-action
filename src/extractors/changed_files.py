@@ -9,10 +9,10 @@ Supports both GitHub API and git-based detection methods.
 import re
 from typing import TYPE_CHECKING, Literal
 
+import ijson
+
 from ..models import ChangedFilesMetadata
 from .base import BaseExtractor
-
-import ijson
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -28,7 +28,7 @@ class ChangedFilesExtractor(BaseExtractor):
         config: "Config",
         github_api: "GitHubAPI | None" = None,
         git_ops: "GitOperations | None" = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize changed files extractor.
@@ -72,16 +72,14 @@ class ChangedFilesExtractor(BaseExtractor):
             self.debug(f"Changed files detection not applicable for event: {event_name}")
 
         if files:
-            self.info(f"Detected {len(files)} changed files ({len(added)} added, {len(modified)} modified, {len(removed)} removed)")
+            self.info(
+                f"Detected {len(files)} changed files ({len(added)} added, {len(modified)} modified, {len(removed)} removed)"
+            )
         else:
             self.debug("No changed files detected")
 
         return ChangedFilesMetadata(
-            count=len(files),
-            files=files,
-            added=added,
-            modified=modified,
-            removed=removed
+            count=len(files), files=files, added=added, modified=modified, removed=removed
         )
 
     def _extract_push_event(self) -> tuple[list[str], dict[str, list[str]]]:
@@ -108,7 +106,9 @@ class ChangedFilesExtractor(BaseExtractor):
                 if before != null_sha and before != "null":
                     self.debug(f"Using before/after SHAs from event: {before[:7]}..{after[:7]}")
                     categorized = self.git_ops.diff_commits_categorized(before, after)
-                    all_files = categorized["added"] + categorized["modified"] + categorized["removed"]
+                    all_files = (
+                        categorized["added"] + categorized["modified"] + categorized["removed"]
+                    )
                     return all_files, categorized
 
             # Fallback: Use diff-tree for single commit
@@ -168,7 +168,6 @@ class ChangedFilesExtractor(BaseExtractor):
                     after_sha = value
                     self.debug(f"Found after SHA: {after_sha[:7]}")
 
-                # Stop once we have both
                 if before_sha and after_sha:
                     break
 
@@ -271,10 +270,7 @@ class ChangedFilesExtractor(BaseExtractor):
                 return [], {"added": [], "modified": [], "removed": []}
 
             self.debug(f"Fetching files for PR #{pr_number} via GitHub API")
-            files = self.github_api.get_pr_files(
-                self.config.GITHUB_REPOSITORY,
-                pr_number
-            )
+            files = self.github_api.get_pr_files(self.config.GITHUB_REPOSITORY, pr_number)
             # API only returns file list without categorization
             # Would need additional API calls to get status per file
             # For now, return all as modified (conservative approach)

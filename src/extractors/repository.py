@@ -18,12 +18,7 @@ if TYPE_CHECKING:
 class RepositoryExtractor(BaseExtractor):
     """Extracts repository-related metadata."""
 
-    def __init__(
-        self,
-        config: "Config",
-        github_api: Optional["GitHubAPI"] = None,
-        **kwargs
-    ):
+    def __init__(self, config: "Config", github_api: Optional["GitHubAPI"] = None, **kwargs):
         """
         Initialize repository extractor.
 
@@ -44,13 +39,11 @@ class RepositoryExtractor(BaseExtractor):
         """
         self.debug("Extracting repository metadata")
 
-        # Parse repository name from full name
         full_name = self.config.GITHUB_REPOSITORY
         owner = self.config.GITHUB_REPOSITORY_OWNER
 
-        # Extract repo name by removing owner prefix
         if full_name.startswith(f"{owner}/"):
-            name = full_name[len(owner) + 1:]
+            name = full_name[len(owner) + 1 :]
         else:
             # Fallback: take everything after first slash
             parts = full_name.split("/", 1)
@@ -74,7 +67,9 @@ class RepositoryExtractor(BaseExtractor):
                 repo_data = self.github_api.get_repository(full_name)
                 is_public = not repo_data.private
                 is_private = repo_data.private
-                self.debug(f"Repository visibility from API: public={is_public}, private={is_private}")
+                self.debug(
+                    f"Repository visibility from API: public={is_public}, private={is_private}"
+                )
             except Exception as e:
                 self.warning(f"Failed to fetch repository visibility from API: {e}")
         else:
@@ -83,9 +78,5 @@ class RepositoryExtractor(BaseExtractor):
         self.info(f"Repository: {full_name} (public={is_public}, private={is_private})")
 
         return RepositoryMetadata(
-            owner=owner,
-            name=name,
-            full_name=full_name,
-            is_public=is_public,
-            is_private=is_private
+            owner=owner, name=name, full_name=full_name, is_public=is_public, is_private=is_private
         )

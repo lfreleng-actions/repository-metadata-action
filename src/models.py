@@ -15,6 +15,7 @@ from .validators import InputValidator
 
 class RepositoryMetadata(BaseModel):
     """Repository information model."""
+
     owner: str
     name: str
     full_name: str
@@ -31,6 +32,7 @@ class RepositoryMetadata(BaseModel):
 
 class EventMetadata(BaseModel):
     """Event type information model."""
+
     name: str
     is_tag_push: bool = False
     is_branch_push: bool = False
@@ -43,6 +45,7 @@ class EventMetadata(BaseModel):
 
 class RefMetadata(BaseModel):
     """Reference (branch/tag) information model."""
+
     branch_name: str | None = None
     tag_name: str | None = None
     is_default_branch: bool = False
@@ -51,6 +54,7 @@ class RefMetadata(BaseModel):
 
 class CommitMetadata(BaseModel):
     """Commit information model."""
+
     sha: str
     sha_short: str
     message: str | None = None
@@ -75,6 +79,7 @@ class CommitMetadata(BaseModel):
 
 class PullRequestMetadata(BaseModel):
     """Pull request information model."""
+
     number: int | None = None
     source_branch: str | None = None
     target_branch: str | None = None
@@ -84,18 +89,21 @@ class PullRequestMetadata(BaseModel):
 
 class ActorMetadata(BaseModel):
     """Actor (user who triggered action) information model."""
+
     name: str
     id: int | None = None
 
 
 class CacheMetadata(BaseModel):
     """Cache key information model."""
+
     key: str
     restore_key: str
 
 
 class ChangedFilesMetadata(BaseModel):
     """Changed files information model."""
+
     count: int = 0
     files: list[str] = Field(default_factory=list)
     added: list[str] = Field(default_factory=list)
@@ -117,6 +125,7 @@ class ChangedFilesMetadata(BaseModel):
 
 class GerritMetadata(BaseModel):
     """Gerrit integration metadata model."""
+
     branch: str = Field(default="")
     change_id: str = Field(default="")
     change_number: str = Field(default="")
@@ -132,6 +141,7 @@ class GerritMetadata(BaseModel):
 
 class CompleteMetadata(BaseModel):
     """Complete metadata model combining all components."""
+
     repository: RepositoryMetadata
     event: EventMetadata
     ref: RefMetadata
@@ -212,11 +222,21 @@ class CompleteMetadata(BaseModel):
         outputs["changed_files_last_commit"] = "\n".join(self.changed_files_last_commit.files)
         outputs["changed_files_last_commit_count"] = str(self.changed_files_last_commit.count)
         outputs["changed_files_last_commit_added"] = "\n".join(self.changed_files_last_commit.added)
-        outputs["changed_files_last_commit_added_count"] = str(self.changed_files_last_commit.added_count)
-        outputs["changed_files_last_commit_modified"] = "\n".join(self.changed_files_last_commit.modified)
-        outputs["changed_files_last_commit_modified_count"] = str(self.changed_files_last_commit.modified_count)
-        outputs["changed_files_last_commit_removed"] = "\n".join(self.changed_files_last_commit.removed)
-        outputs["changed_files_last_commit_removed_count"] = str(self.changed_files_last_commit.removed_count)
+        outputs["changed_files_last_commit_added_count"] = str(
+            self.changed_files_last_commit.added_count
+        )
+        outputs["changed_files_last_commit_modified"] = "\n".join(
+            self.changed_files_last_commit.modified
+        )
+        outputs["changed_files_last_commit_modified_count"] = str(
+            self.changed_files_last_commit.modified_count
+        )
+        outputs["changed_files_last_commit_removed"] = "\n".join(
+            self.changed_files_last_commit.removed
+        )
+        outputs["changed_files_last_commit_removed_count"] = str(
+            self.changed_files_last_commit.removed_count
+        )
 
         # Gerrit output (as JSON string)
         # Always include Gerrit fields in output (even when empty)
@@ -229,7 +249,7 @@ class CompleteMetadata(BaseModel):
             outputs["gerrit_json"] = self.gerrit_environment.model_dump_json(
                 exclude_none=False,  # Keep empty string fields
                 exclude=exclude_fields,
-                by_alias=True
+                by_alias=True,
             )
         else:
             # This should not happen anymore since GerritExtractor always returns an object
@@ -255,7 +275,6 @@ class CompleteMetadata(BaseModel):
         so they will always be included in the output even when not populated.
         The comment field is excluded by default for security unless include_comment=True.
         """
-        # Build exclude set for gerrit comment and source fields
         exclude = None
         if self.gerrit_environment:
             gerrit_exclude = {"source"}  # Always exclude internal 'source' field
@@ -264,12 +283,14 @@ class CompleteMetadata(BaseModel):
             exclude = {"gerrit_environment": gerrit_exclude}
 
         if pretty:
-            return str(self.model_dump_json(
-                exclude_none=False,  # Keep empty string fields for Gerrit
-                exclude=exclude,
-                indent=2,
-                by_alias=True
-            ))
+            return str(
+                self.model_dump_json(
+                    exclude_none=False,  # Keep empty string fields for Gerrit
+                    exclude=exclude,
+                    indent=2,
+                    by_alias=True,
+                )
+            )
         return str(self.model_dump_json(exclude_none=False, exclude=exclude, by_alias=True))
 
     def to_dict(self, include_comment: bool = False) -> dict[str, Any]:
@@ -283,7 +304,6 @@ class CompleteMetadata(BaseModel):
         so they will always be included in the output even when not populated.
         The comment field is excluded by default for security unless include_comment=True.
         """
-        # Build exclude set for gerrit comment and source fields
         exclude = None
         if self.gerrit_environment:
             gerrit_exclude = {"source"}  # Always exclude internal 'source' field
@@ -291,4 +311,6 @@ class CompleteMetadata(BaseModel):
                 gerrit_exclude.add("comment")
             exclude = {"gerrit_environment": gerrit_exclude}
 
-        return dict(self.model_dump(exclude_none=False, exclude=exclude, by_alias=True, mode="json"))
+        return dict(
+            self.model_dump(exclude_none=False, exclude=exclude, by_alias=True, mode="json")
+        )

@@ -40,13 +40,13 @@ class InputValidator:
 
     # Path traversal patterns to detect
     PATH_TRAVERSAL_PATTERNS = [
-        "..",      # Parent directory
-        "~",       # Home directory
-        "$",       # Variable expansion
-        "`",       # Command substitution
-        "\x00",    # Null byte
-        "\n",      # Newline (in paths)
-        "\r",      # Carriage return (in paths)
+        "..",  # Parent directory
+        "~",  # Home directory
+        "$",  # Variable expansion
+        "`",  # Command substitution
+        "\x00",  # Null byte
+        "\n",  # Newline (in paths)
+        "\r",  # Carriage return (in paths)
     ]
 
     @staticmethod
@@ -94,8 +94,7 @@ class InputValidator:
 
         if not InputValidator.REPO_NAME_PATTERN.match(repo_name):
             raise ValidationError(
-                f"Repository name must be in 'owner/repo' format. "
-                f"Got: {repo_name}"
+                f"Repository name must be in 'owner/repo' format. Got: {repo_name}"
             )
 
         # Additional length checks
@@ -132,7 +131,6 @@ class InputValidator:
                 f"Got: {ref_name[:50]}..."
             )
 
-        # Check for suspicious patterns
         if ref_name.startswith("-"):
             raise ValidationError(f"{field_name} cannot start with dash")
 
@@ -196,12 +194,31 @@ class InputValidator:
 
         # Whitelist of known GitHub event types
         known_events = {
-            "push", "pull_request", "pull_request_target", "release",
-            "schedule", "workflow_dispatch", "workflow_call", "repository_dispatch",
-            "issue_comment", "issues", "create", "delete", "fork",
-            "gollum", "merge_group", "milestone", "page_build",
-            "project", "project_card", "project_column", "public",
-            "registry_package", "status", "watch", "workflow_run"
+            "push",
+            "pull_request",
+            "pull_request_target",
+            "release",
+            "schedule",
+            "workflow_dispatch",
+            "workflow_call",
+            "repository_dispatch",
+            "issue_comment",
+            "issues",
+            "create",
+            "delete",
+            "fork",
+            "gollum",
+            "merge_group",
+            "milestone",
+            "page_build",
+            "project",
+            "project_card",
+            "project_column",
+            "public",
+            "registry_package",
+            "status",
+            "watch",
+            "workflow_run",
         }
 
         if event_name not in known_events:
@@ -229,18 +246,13 @@ class InputValidator:
         if not component:
             raise ValidationError(f"{field_name} cannot be empty")
 
-        # Check for path traversal patterns
         for pattern in InputValidator.PATH_TRAVERSAL_PATTERNS:
             if pattern in component:
-                raise ValidationError(
-                    f"{field_name} contains dangerous pattern: {pattern}"
-                )
+                raise ValidationError(f"{field_name} contains dangerous pattern: {pattern}")
 
-        # Check for absolute paths
         if component.startswith("/"):
             raise ValidationError(f"{field_name} cannot be an absolute path")
 
-        # Check for Windows drive letters
         if re.match(r"^[a-zA-Z]:", component):
             raise ValidationError(f"{field_name} cannot contain drive letters")
 
@@ -272,9 +284,7 @@ class InputValidator:
             try:
                 resolved_path.relative_to(resolved_base)
             except ValueError:
-                raise ValidationError(
-                    f"Path {path} is outside allowed directory {base_dir}"
-                )
+                raise ValidationError(f"Path {path} is outside allowed directory {base_dir}")
 
             return resolved_path
 
@@ -308,9 +318,12 @@ class InputValidator:
         return sanitized
 
     @staticmethod
-    def validate_integer(value: str, field_name: str = "value",
-                        min_val: int | None = None,
-                        max_val: int | None = None) -> int:
+    def validate_integer(
+        value: str,
+        field_name: str = "value",
+        min_val: int | None = None,
+        max_val: int | None = None,
+    ) -> int:
         """
         Validate and parse an integer value.
 
@@ -332,13 +345,9 @@ class InputValidator:
             raise ValidationError(f"{field_name} must be an integer, got: {value}")
 
         if min_val is not None and int_val < min_val:
-            raise ValidationError(
-                f"{field_name} must be >= {min_val}, got: {int_val}"
-            )
+            raise ValidationError(f"{field_name} must be >= {min_val}, got: {int_val}")
 
         if max_val is not None and int_val > max_val:
-            raise ValidationError(
-                f"{field_name} must be <= {max_val}, got: {int_val}"
-            )
+            raise ValidationError(f"{field_name} must be <= {max_val}, got: {int_val}")
 
         return int_val

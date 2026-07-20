@@ -78,7 +78,6 @@ class GitOperations:
                 return False
 
             try:
-                # Check for .git/shallow file which indicates a shallow clone
                 shallow_file = self.repo_path / ".git" / "shallow"
                 self._is_shallow = shallow_file.exists()
 
@@ -190,7 +189,7 @@ class GitOperations:
             # Get files changed in this commit compared to its parent(s)
             if not commit.parents:
                 # Initial commit - show all files
-                return [str(item.path) for item in commit.tree.traverse() if hasattr(item, 'path')]  # type: ignore[union-attr]
+                return [str(item.path) for item in commit.tree.traverse() if hasattr(item, "path")]  # type: ignore[union-attr]
 
             # Use diff to parent to get changed files
             parent = commit.parents[0]
@@ -229,7 +228,6 @@ class GitOperations:
             from_commit = self.repo.commit(from_sha)
             to_commit = self.repo.commit(to_sha)
 
-            # Get diff between commits
             diffs = from_commit.diff(to_commit)
 
             files = []
@@ -267,7 +265,6 @@ class GitOperations:
             base_commit = self.repo.commit(base)
             head_commit = self.repo.commit(head)
 
-            # Check cache for merge base
             cache_key = (base, head)
             if cache_key in self._merge_base_cache:
                 merge_bases = self._merge_base_cache[cache_key]
@@ -328,7 +325,11 @@ class GitOperations:
             # Get files changed in this commit compared to its parent(s)
             if not commit.parents:
                 # Initial commit - all files are added
-                all_files = [str(item.path) for item in commit.tree.traverse() if hasattr(item, 'path')]  # type: ignore[union-attr]
+                all_files = [
+                    str(item.path)  # type: ignore[union-attr]
+                    for item in commit.tree.traverse()
+                    if hasattr(item, "path")
+                ]
                 return {"added": sorted(all_files), "modified": [], "removed": []}
 
             # Use diff to parent to get changed files with status
@@ -352,17 +353,16 @@ class GitOperations:
                     # File was renamed - treat as modified
                     if diff.b_path:
                         modified.append(diff.b_path)
-                else:
-                    # File was modified
-                    if diff.b_path:
-                        modified.append(diff.b_path)
-                    elif diff.a_path:
-                        modified.append(diff.a_path)
+                # File was modified
+                elif diff.b_path:
+                    modified.append(diff.b_path)
+                elif diff.a_path:
+                    modified.append(diff.a_path)
 
             return {
                 "added": sorted(set(added)),
                 "modified": sorted(set(modified)),
-                "removed": sorted(set(removed))
+                "removed": sorted(set(removed)),
             }
 
         except (GitCommandError, ValueError, IndexError) as e:
@@ -388,7 +388,6 @@ class GitOperations:
             from_commit = self.repo.commit(from_sha)
             to_commit = self.repo.commit(to_sha)
 
-            # Get diff between commits
             diffs = from_commit.diff(to_commit)
 
             added = []
@@ -408,17 +407,16 @@ class GitOperations:
                     # File was renamed - treat as modified
                     if diff.b_path:
                         modified.append(diff.b_path)
-                else:
-                    # File was modified
-                    if diff.b_path:
-                        modified.append(diff.b_path)
-                    elif diff.a_path:
-                        modified.append(diff.a_path)
+                # File was modified
+                elif diff.b_path:
+                    modified.append(diff.b_path)
+                elif diff.a_path:
+                    modified.append(diff.a_path)
 
             return {
                 "added": sorted(set(added)),
                 "modified": sorted(set(modified)),
-                "removed": sorted(set(removed))
+                "removed": sorted(set(removed)),
             }
 
         except (GitCommandError, ValueError) as e:
@@ -447,7 +445,6 @@ class GitOperations:
             base_commit = self.repo.commit(base)
             head_commit = self.repo.commit(head)
 
-            # Check cache for merge base
             cache_key = f"{base}...{head}"
             if cache_key in self._merge_base_cache:
                 merge_base = self._merge_base_cache[cache_key]
@@ -483,17 +480,16 @@ class GitOperations:
                     # File was renamed - treat as modified
                     if diff.b_path:
                         modified.append(diff.b_path)
-                else:
-                    # File was modified
-                    if diff.b_path:
-                        modified.append(diff.b_path)
-                    elif diff.a_path:
-                        modified.append(diff.a_path)
+                # File was modified
+                elif diff.b_path:
+                    modified.append(diff.b_path)
+                elif diff.a_path:
+                    modified.append(diff.a_path)
 
             return {
                 "added": sorted(set(added)),
                 "modified": sorted(set(modified)),
-                "removed": sorted(set(removed))
+                "removed": sorted(set(removed)),
             }
 
         except (GitCommandError, ValueError) as e:
@@ -515,18 +511,15 @@ class GitOperations:
             raise GitOperationError("No git repository available for fetch")
 
         try:
-            # Parse branch name to handle origin/ prefix
             if branch.startswith("origin/"):
                 branch_name = branch[7:]  # Remove 'origin/' prefix
             else:
                 branch_name = branch
 
-            # Build fetch refspec
             refspec = f"{branch_name}:refs/remotes/origin/{branch_name}"
 
             self.logger.debug(f"Fetching branch: {branch_name} (depth={depth})")
 
-            # Fetch from origin
             origin = self.repo.remote("origin")
             if depth:
                 origin.fetch(refspec, depth=depth)

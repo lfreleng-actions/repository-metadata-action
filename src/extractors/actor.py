@@ -6,7 +6,6 @@ Actor metadata extractor.
 Extracts information about the user who triggered the workflow.
 """
 
-
 from ..models import ActorMetadata
 from .base import BaseExtractor
 
@@ -36,7 +35,4 @@ class ActorExtractor(BaseExtractor):
             except (ValueError, TypeError) as e:
                 self.warning(f"Failed to parse actor ID '{self.config.GITHUB_ACTOR_ID}': {e}")
 
-        return ActorMetadata(
-            name=actor_name,
-            id=actor_id
-        )
+        return ActorMetadata(name=actor_name, id=actor_id)
