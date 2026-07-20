@@ -24,5 +24,5 @@ MAX_REPOSITORY_NAME_LENGTH = 100  # GitHub repository name maximum length
 MAX_REF_NAME_LENGTH = 256  # Maximum length for git reference names
 
 # Security token generation
-ARTIFACT_SUFFIX_RANDOM_BYTES = 2  # Number of random bytes (4 hex chars) for artifact naming
+ARTIFACT_SUFFIX_RANDOM_BYTES = 4  # Number of random bytes (8 hex chars) for artifact naming
 GITHUB_OUTPUT_DELIMITER_RANDOM_BYTES = 8  # Number of random bytes for output delimiter
