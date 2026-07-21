@@ -4,7 +4,19 @@
 
 version: 2
 updates:
+  # GitHub Actions used by the workflows and the composite action.yaml
+  # ("/" scans both .github/workflows and the root action.yaml).
   - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "Chore"
+    cooldown:
+      default-days: 7
+
+  # Python runtime dependencies managed by uv (pyproject.toml + uv.lock).
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
