@@ -32,7 +32,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "pydantic>=2.0.0,<3.0.0",
+    "pydantic>=2.13.4,<3.0.0",
     "PyGithub>=2.1.0,<3.0.0",
     "GitPython>=3.1.44,<4.0.0",
     "PyYAML>=6.0,<7.0",
