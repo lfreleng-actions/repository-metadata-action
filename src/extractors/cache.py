@@ -6,7 +6,6 @@ Cache key generator extractor.
 Generates cache keys based on repository and commit information.
 """
 
-
 from ..models import CacheMetadata
 from .base import BaseExtractor
 
@@ -23,7 +22,6 @@ class CacheExtractor(BaseExtractor):
         """
         self.debug("Generating cache keys")
 
-        # Extract components for cache key
         owner = self.config.GITHUB_REPOSITORY_OWNER
         repo_name = self.config.GITHUB_REPOSITORY.split("/", 1)[1]
         ref_name = self.config.GITHUB_REF_NAME or "main"
@@ -39,7 +37,4 @@ class CacheExtractor(BaseExtractor):
         self.debug(f"Cache key: {cache_key}")
         self.debug(f"Cache restore key prefix: {cache_restore_key}")
 
-        return CacheMetadata(
-            key=cache_key,
-            restore_key=cache_restore_key
-        )
+        return CacheMetadata(key=cache_key, restore_key=cache_restore_key)

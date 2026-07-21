@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 class JsonFormatter:
     """Formats metadata as JSON."""
 
-    def format(self, metadata: "CompleteMetadata", pretty: bool = False, include_comment: bool = False) -> str:
+    def format(
+        self, metadata: "CompleteMetadata", pretty: bool = False, include_comment: bool = False
+    ) -> str:
         """
         Format metadata as JSON string.
 

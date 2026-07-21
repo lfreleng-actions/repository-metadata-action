@@ -46,7 +46,6 @@ class ArtifactGenerator:
         Returns:
             Unique suffix string (datetime-random format)
         """
-        # Get current datetime in UTC
         now = datetime.now(timezone.utc)
         datetime_str = now.strftime("%Y%m%d-%H%M%S")
 
@@ -72,17 +71,14 @@ class ArtifactGenerator:
         Raises:
             ValidationError: If path validation fails
         """
-        # Validate directory name components
         try:
             dir_name = f"repository-metadata-{self.suffix}"
             InputValidator.sanitize_path_component(dir_name, "artifact_dir")
         except ValidationError as e:
             raise ValidationError(f"Invalid artifact directory name: {e}")
 
-        # Create artifact directory
         artifact_dir = self.config.RUNNER_TEMP / dir_name
 
-        # Validate that artifact_dir is within RUNNER_TEMP
         try:
             validated_dir = InputValidator.validate_path_within_directory(
                 artifact_dir, self.config.RUNNER_TEMP
@@ -90,7 +86,6 @@ class ArtifactGenerator:
         except ValidationError as e:
             raise ValidationError(f"Artifact path validation failed: {e}")
 
-        # Create the directory
         validated_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir = validated_dir
 
@@ -120,12 +115,10 @@ class ArtifactGenerator:
         formatter = JsonFormatter()
         include_comment = self.config.GERRIT_INCLUDE_COMMENT
 
-        # Write compact JSON
         compact_json = formatter.format_compact(metadata, include_comment=include_comment)
         compact_file = artifact_dir / "repository-metadata.json"
         compact_file.write_text(compact_json, encoding="utf-8")
 
-        # Write pretty JSON
         pretty_json = formatter.format_pretty(metadata, include_comment=include_comment)
         pretty_file = artifact_dir / "repository-metadata-pretty.json"
         pretty_file.write_text(pretty_json, encoding="utf-8")

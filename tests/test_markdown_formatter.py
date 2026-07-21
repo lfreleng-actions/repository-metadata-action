@@ -136,7 +136,7 @@ class TestMarkdownFormatter:
 
     def test_format_gerrit_section(self, formatter, metadata_with_gerrit):
         """Test formatting Gerrit section."""
-        result = formatter._format_gerrit_section(metadata_with_gerrit)
+        result = formatter.format_gerrit_section(metadata_with_gerrit)
 
         assert "Gerrit Parameters" in result
         assert "Ib2e87d192c88da6250951ea96d96c2a845ffee55" in result
@@ -146,20 +146,20 @@ class TestMarkdownFormatter:
 
     def test_format_gerrit_section_with_url(self, formatter, metadata_with_gerrit):
         """Test Gerrit section includes URL."""
-        result = formatter._format_gerrit_section(metadata_with_gerrit)
+        result = formatter.format_gerrit_section(metadata_with_gerrit)
 
         assert "https://gerrit.linuxfoundation.org/infra/c/sandbox/+/74048" in result
 
     def test_format_gerrit_section_no_data(self, formatter, basic_metadata):
         """Test Gerrit section when no data present."""
-        result = formatter._format_gerrit_section(basic_metadata)
+        result = formatter.format_gerrit_section(basic_metadata)
 
         assert "Gerrit Parameters" in result
         assert "No Gerrit metadata found" in result
 
     def test_format_files_section_empty(self, formatter, basic_metadata):
         """Test files section when no files changed."""
-        result = formatter._format_files_section(basic_metadata)
+        result = formatter.format_files_section(basic_metadata)
 
         assert "## 📁 Changed Files" in result
         assert "No changed files detected" in result
@@ -173,7 +173,7 @@ class TestMarkdownFormatter:
             removed=["file3.py"],
         )
 
-        result = formatter._format_files_section(basic_metadata)
+        result = formatter.format_files_section(basic_metadata)
 
         assert "## 📁 Changed Files" in result
         assert "**Total Changed Files:** 3" in result
@@ -236,7 +236,7 @@ class TestMarkdownFormatterLastCommit:
 
     def test_format_last_commit_files_basic(self, formatter, metadata_with_last_commit):
         """Test basic rendering with mixed file types."""
-        result = formatter._format_last_commit_files_section(metadata_with_last_commit)
+        result = formatter.format_last_commit_files_section(metadata_with_last_commit)
 
         assert "## 📁 Changed Files (Last Commit)" in result
         assert "**Total Changed Files:** 2" in result
@@ -262,7 +262,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         assert "## 📁 Changed Files (Last Commit)" in result
         assert "No changed files detected in last commit" in result
@@ -289,7 +289,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         assert "**Total Changed Files:** 3" in result
         assert "✅ Added" in result
@@ -321,7 +321,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         assert "**Total Changed Files:** 2" in result
         assert "✏️ Modified" in result
@@ -347,7 +347,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         assert "**Total Changed Files:** 1" in result
         assert "❌ Removed" in result
@@ -376,7 +376,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         assert "**Total Changed Files:** 60" in result
         assert "... and 10 more" in result
@@ -408,7 +408,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         # Pipes should be escaped
         assert "file\\|with\\|pipes.txt" in result
@@ -437,7 +437,7 @@ class TestMarkdownFormatterLastCommit:
             gerrit_environment=GerritMetadata(),
         )
 
-        result = formatter._format_last_commit_files_section(metadata)
+        result = formatter.format_last_commit_files_section(metadata)
 
         assert "文件.txt" in result
         assert "archivo.py" in result
@@ -445,7 +445,7 @@ class TestMarkdownFormatterLastCommit:
 
     def test_format_last_commit_files_counts_table(self, formatter, metadata_with_last_commit):
         """Test that category counts table is formatted correctly."""
-        result = formatter._format_last_commit_files_section(metadata_with_last_commit)
+        result = formatter.format_last_commit_files_section(metadata_with_last_commit)
 
         # Check table structure
         assert "| Category | Count |" in result
@@ -455,7 +455,7 @@ class TestMarkdownFormatterLastCommit:
 
     def test_format_last_commit_files_sections_present(self, formatter, metadata_with_last_commit):
         """Test that file list sections are present."""
-        result = formatter._format_last_commit_files_section(metadata_with_last_commit)
+        result = formatter.format_last_commit_files_section(metadata_with_last_commit)
 
         assert "### ✅ Added Files" in result
         assert "### ✏️ Modified Files" in result

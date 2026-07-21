@@ -10,10 +10,10 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
+import ijson
+
 from ..models import GerritMetadata
 from .base import BaseExtractor
-
-import ijson
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -23,12 +23,7 @@ if TYPE_CHECKING:
 class GerritExtractor(BaseExtractor):
     """Extracts Gerrit-related metadata from various sources."""
 
-    def __init__(
-        self,
-        config: "Config",
-        git_ops: "GitOperations | None" = None,
-        **kwargs
-    ):
+    def __init__(self, config: "Config", git_ops: "GitOperations | None" = None, **kwargs):
         """
         Initialize Gerrit extractor.
 
@@ -87,7 +82,7 @@ class GerritExtractor(BaseExtractor):
             project="",
             refspec="",
             comment="",
-            source="none"
+            source="none",
         )
 
     def _extract_from_workflow_dispatch(self) -> tuple[dict[str, Any] | None, str | None]:
@@ -110,7 +105,6 @@ class GerritExtractor(BaseExtractor):
                 parser = ijson.items(f, "inputs")
                 inputs: dict[str, Any] = next(parser, {}) or {}
 
-            # Check for consolidated gerrit_json input first
             gerrit_json = inputs.get("gerrit_json")
             if gerrit_json:
                 try:
@@ -196,17 +190,12 @@ class GerritExtractor(BaseExtractor):
 
             # Look for Change-Id trailer
             # Pattern: Change-Id: I<40-hex-chars> at start of line
-            match = re.search(
-                r"^Change-Id:\s+(I[0-9a-fA-F]{40})$",
-                commit_message,
-                re.MULTILINE
-            )
+            match = re.search(r"^Change-Id:\s+(I[0-9a-fA-F]{40})$", commit_message, re.MULTILINE)
 
             if match:
                 change_id = match.group(1)
                 self.debug(f"Found Change-Id in commit message: {change_id}")
 
-                # Build minimal Gerrit data from commit
                 gerrit_data = {
                     "change_id": change_id,
                     "branch": self.config.GITHUB_REF_NAME or "",
@@ -262,9 +251,9 @@ class GerritExtractor(BaseExtractor):
         for field in fields:
             # Try different name variations
             value = (
-                source.get(field) or
-                source.get(f"GERRIT_{field.upper()}") or
-                source.get(f"gerrit_{field}")
+                source.get(field)
+                or source.get(f"GERRIT_{field.upper()}")
+                or source.get(f"gerrit_{field}")
             )
 
             # Convert to string, empty string if None or "null"

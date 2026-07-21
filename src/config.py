@@ -42,7 +42,6 @@ class Config:
 
     def _load_required_vars(self) -> None:
         """Load and validate required environment variables."""
-        # Load and validate GITHUB_REPOSITORY
         repo = os.environ.get("GITHUB_REPOSITORY")
         if not repo:
             raise ConfigurationError("Required environment variable 'GITHUB_REPOSITORY' is not set")
@@ -51,7 +50,6 @@ class Config:
         except ValidationError as e:
             raise ConfigurationError(f"Invalid GITHUB_REPOSITORY: {e}")
 
-        # Load and validate GITHUB_SHA
         sha = os.environ.get("GITHUB_SHA")
         if not sha:
             raise ConfigurationError("Required environment variable 'GITHUB_SHA' is not set")
@@ -60,16 +58,16 @@ class Config:
         except ValidationError as e:
             raise ConfigurationError(f"Invalid GITHUB_SHA: {e}")
 
-        # Load and validate GITHUB_REPOSITORY_OWNER
         owner = os.environ.get("GITHUB_REPOSITORY_OWNER")
         if not owner:
-            raise ConfigurationError("Required environment variable 'GITHUB_REPOSITORY_OWNER' is not set")
+            raise ConfigurationError(
+                "Required environment variable 'GITHUB_REPOSITORY_OWNER' is not set"
+            )
         # Owner is part of repository name, basic sanitization
         if not owner or len(owner) > 39 or not re.match(r"^[a-zA-Z0-9_.-]+$", owner):
             raise ConfigurationError(f"Invalid GITHUB_REPOSITORY_OWNER: {owner}")
         self.GITHUB_REPOSITORY_OWNER = owner
 
-        # Load and validate GITHUB_ACTOR
         actor = os.environ.get("GITHUB_ACTOR")
         if not actor:
             raise ConfigurationError("Required environment variable 'GITHUB_ACTOR' is not set")
@@ -78,7 +76,6 @@ class Config:
         except ValidationError as e:
             raise ConfigurationError(f"Invalid GITHUB_ACTOR: {e}")
 
-        # Load and validate GITHUB_EVENT_NAME
         event = os.environ.get("GITHUB_EVENT_NAME")
         if not event:
             raise ConfigurationError("Required environment variable 'GITHUB_EVENT_NAME' is not set")
@@ -87,7 +84,6 @@ class Config:
         except ValidationError as e:
             raise ConfigurationError(f"Invalid GITHUB_EVENT_NAME: {e}")
 
-        # Load and validate GITHUB_OUTPUT path
         output = os.environ.get("GITHUB_OUTPUT")
         if not output:
             raise ConfigurationError("Required environment variable 'GITHUB_OUTPUT' is not set")
@@ -113,7 +109,6 @@ class Config:
             try:
                 self.GITHUB_REF = InputValidator.validate_ref_name(github_ref, "GITHUB_REF")
             except ValidationError as e:
-                # Log but don't fail for optional vars
                 logging.warning(f"GITHUB_REF validation failed: {e}, using raw value")
                 self.GITHUB_REF = github_ref
         else:
@@ -122,7 +117,9 @@ class Config:
         github_ref_name = os.environ.get("GITHUB_REF_NAME")
         if github_ref_name:
             try:
-                self.GITHUB_REF_NAME = InputValidator.validate_ref_name(github_ref_name, "GITHUB_REF_NAME")
+                self.GITHUB_REF_NAME = InputValidator.validate_ref_name(
+                    github_ref_name, "GITHUB_REF_NAME"
+                )
             except ValidationError as e:
                 logging.warning(f"GITHUB_REF_NAME validation failed: {e}, using raw value")
                 self.GITHUB_REF_NAME = github_ref_name
@@ -138,7 +135,9 @@ class Config:
         github_base_ref = os.environ.get("GITHUB_BASE_REF")
         if github_base_ref:
             try:
-                self.GITHUB_BASE_REF = InputValidator.validate_ref_name(github_base_ref, "GITHUB_BASE_REF")
+                self.GITHUB_BASE_REF = InputValidator.validate_ref_name(
+                    github_base_ref, "GITHUB_BASE_REF"
+                )
             except ValidationError as e:
                 logging.warning(f"GITHUB_BASE_REF validation failed: {e}, using raw value")
                 self.GITHUB_BASE_REF = github_base_ref
@@ -148,7 +147,9 @@ class Config:
         github_head_ref = os.environ.get("GITHUB_HEAD_REF")
         if github_head_ref:
             try:
-                self.GITHUB_HEAD_REF = InputValidator.validate_ref_name(github_head_ref, "GITHUB_HEAD_REF")
+                self.GITHUB_HEAD_REF = InputValidator.validate_ref_name(
+                    github_head_ref, "GITHUB_HEAD_REF"
+                )
             except ValidationError as e:
                 logging.warning(f"GITHUB_HEAD_REF validation failed: {e}, using raw value")
                 self.GITHUB_HEAD_REF = github_head_ref
@@ -159,7 +160,9 @@ class Config:
         actor_id = os.environ.get("GITHUB_ACTOR_ID")
         if actor_id:
             try:
-                self.GITHUB_ACTOR_ID: int | None = InputValidator.validate_integer(actor_id, "GITHUB_ACTOR_ID", min_val=1)
+                self.GITHUB_ACTOR_ID: int | None = InputValidator.validate_integer(
+                    actor_id, "GITHUB_ACTOR_ID", min_val=1
+                )
             except ValidationError as e:
                 logging.warning(f"GITHUB_ACTOR_ID validation failed: {e}, using raw value")
                 self.GITHUB_ACTOR_ID = actor_id
@@ -196,7 +199,9 @@ class Config:
 
         # GitHub summary (renamed from GENERATE_SUMMARY for clarity)
         # Support both names for backward compatibility
-        github_summary_str = os.environ.get("GITHUB_SUMMARY") or os.environ.get("GENERATE_SUMMARY") or "false"
+        github_summary_str = (
+            os.environ.get("GITHUB_SUMMARY") or os.environ.get("GENERATE_SUMMARY") or "false"
+        )
         self.GITHUB_SUMMARY = github_summary_str.lower() in ("true", "1", "yes")
 
         # Gerrit summary (independent of GitHub summary)
@@ -228,15 +233,15 @@ class Config:
                 depth_str, "GIT_FETCH_DEPTH", min_val=1, max_val=10000
             )
         except ValidationError as e:
-            logging.warning(f"Invalid GIT_FETCH_DEPTH '{depth_str}': {e}, using default {DEFAULT_GIT_FETCH_DEPTH}")
+            logging.warning(
+                f"Invalid GIT_FETCH_DEPTH '{depth_str}': {e}, using default {DEFAULT_GIT_FETCH_DEPTH}"
+            )
             self.GIT_FETCH_DEPTH = DEFAULT_GIT_FETCH_DEPTH
 
         # Artifact formats
         formats_str = os.environ.get("ARTIFACT_FORMATS", "json,yaml")
         self.ARTIFACT_FORMATS: list[str] = [
-            fmt.strip().lower()
-            for fmt in formats_str.split(",")
-            if fmt.strip()
+            fmt.strip().lower() for fmt in formats_str.split(",") if fmt.strip()
         ]
 
         # Gerrit-specific environment variables

@@ -6,6 +6,8 @@ GitHub API client wrapper using PyGithub.
 Provides a clean interface to GitHub API operations with error handling.
 """
 
+# aislop-ignore-file ai-slop/hallucinated-import -- "github" module is provided by the PyGithub package (declared in pyproject.toml)
+
 import logging
 from typing import Any, Literal
 
@@ -57,7 +59,9 @@ class GitHubAPI:
             GithubException: If repository cannot be accessed
         """
         if not self.client:
-            raise GithubException(status=401, data={"message": "GitHub client not initialized"}, headers={})
+            raise GithubException(
+                status=401, data={"message": "GitHub client not initialized"}, headers={}
+            )
 
         try:
             repo = self.client.get_repo(repo_name)
@@ -67,7 +71,9 @@ class GitHubAPI:
             self.logger.error(f"Failed to get repository {repo_name}: {e}")
             raise
 
-    def get_pr_files(self, repo_name: str, pr_number: int, max_files: int = MAX_PR_FILES) -> list[str]:
+    def get_pr_files(
+        self, repo_name: str, pr_number: int, max_files: int = MAX_PR_FILES
+    ) -> list[str]:
         """
         Get list of changed files in a pull request.
 
