@@ -255,8 +255,8 @@ class TestArtifactGeneratorEdgeCases:
         # Second part is time (HHMMSS)
         assert parts[1].isdigit()
         assert len(parts[1]) == 6
-        # Third part is hex (4 chars)
-        assert len(parts[2]) == 4
+        # Third part is hex (8 chars)
+        assert len(parts[2]) == 8
         assert all(c in "0123456789abcdef" for c in parts[2])
 
 

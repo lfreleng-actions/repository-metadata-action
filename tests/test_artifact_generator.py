@@ -90,7 +90,7 @@ class TestArtifactGenerator:
         generator = ArtifactGenerator(mock_config)
 
         # Should match pattern: {YYYYMMDD}-{HHMMSS}-{hex}
-        pattern = r"^\d{8}-\d{6}-[a-f0-9]{4}$"
+        pattern = r"^\d{8}-\d{6}-[a-f0-9]{8}$"
         assert re.match(pattern, generator.suffix), (
             f"Suffix doesn't match pattern: {generator.suffix}"
         )
@@ -117,7 +117,7 @@ class TestArtifactGenerator:
         assert len(parts) == 3
 
         random_part = parts[2]
-        assert len(random_part) == 4, "Random part should be 4 hex characters"
+        assert len(random_part) == 8, "Random part should be 8 hex characters"
         assert all(c in "0123456789abcdef" for c in random_part), "Random part should be hex"
 
     def test_suffix_uniqueness(self, mock_config):
@@ -342,6 +342,6 @@ class TestArtifactGenerator:
 
         generator = ArtifactGenerator(mock_config)
 
-        # Should have called secrets.token_hex(2)
-        mock_token_hex.assert_called_once_with(2)
+        # Should have called secrets.token_hex(4)
+        mock_token_hex.assert_called_once_with(4)
         assert generator.suffix.endswith("-deadbeef")
