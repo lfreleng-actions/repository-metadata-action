@@ -60,6 +60,16 @@ jobs:
         env:
           METADATA_JSON: ${{ steps.metadata.outputs.metadata_json }}
           METADATA_YAML: ${{ steps.metadata.outputs.metadata_yaml }}
+          # yamllint disable-line rule:line-length
+          STEPS_METADATA_OUTPUTS_REPOSITORY_OWNER: ${{ steps.metadata.outputs.repository_owner }}
+          # yamllint disable-line rule:line-length
+          STEPS_METADATA_OUTPUTS_REPOSITORY_NAME: ${{ steps.metadata.outputs.repository_name }}
+          # yamllint disable-line rule:line-length
+          STEPS_METADATA_OUTPUTS_COMMIT_SHA: ${{ steps.metadata.outputs.commit_sha }}
+          # yamllint disable-line rule:line-length
+          STEPS_METADATA_OUTPUTS_EVENT_NAME: ${{ steps.metadata.outputs.event_name }}
+          # yamllint disable-line rule:line-length
+          STEPS_METADATA_OUTPUTS_IS_PULL_REQUEST: ${{ steps.metadata.outputs.is_pull_request }}
         # yamllint disable rule:line-length
         run: |
           # Validate repository metadata outputs
@@ -141,8 +151,8 @@ jobs:
           # Validate expected values
           expected_owner="${GITHUB_REPOSITORY_OWNER}"
           expected_name="${GITHUB_REPOSITORY#"$GITHUB_REPOSITORY_OWNER"/}"
-          actual_owner="${{ steps.metadata.outputs.repository_owner }}"
-          actual_name="${{ steps.metadata.outputs.repository_name }}"
+          actual_owner="${STEPS_METADATA_OUTPUTS_REPOSITORY_OWNER}"
+          actual_name="${STEPS_METADATA_OUTPUTS_REPOSITORY_NAME}"
 
           {
             echo '### 🧪 Value Validation'
@@ -172,7 +182,7 @@ jobs:
 
           # Validate commit SHA
           expected_sha="$GITHUB_SHA"
-          actual_sha="${{ steps.metadata.outputs.commit_sha }}"
+          actual_sha="${STEPS_METADATA_OUTPUTS_COMMIT_SHA}"
           if [ "$actual_sha" != "$expected_sha" ]; then
             {
               echo "❌ SHA mismatch: expected $expected_sha, got $actual_sha"
@@ -186,8 +196,8 @@ jobs:
           fi
 
           # Validate event detection logic
-          event_name="${{ steps.metadata.outputs.event_name }}"
-          is_pr="${{ steps.metadata.outputs.is_pull_request }}"
+          event_name="${STEPS_METADATA_OUTPUTS_EVENT_NAME}"
+          is_pr="${STEPS_METADATA_OUTPUTS_IS_PULL_REQUEST}"
 
           if [ "$event_name" = "pull_request" ]; then
             if [ "$is_pr" != "true" ]; then
@@ -228,7 +238,7 @@ jobs:
 
           # Validate basic outputs still work
           expected_owner="${GITHUB_REPOSITORY_OWNER}"
-          actual_owner="${{ steps.metadata-git.outputs.repository_owner }}"
+          actual_owner="${STEPS_METADATA_GIT_OUTPUTS_REPOSITORY_OWNER}"
 
           if [ "$actual_owner" != "$expected_owner" ]; then
             {
@@ -243,7 +253,7 @@ jobs:
 
           # Validate commit SHA
           expected_sha="$GITHUB_SHA"
-          actual_sha="${{ steps.metadata-git.outputs.commit_sha }}"
+          actual_sha="${STEPS_METADATA_GIT_OUTPUTS_COMMIT_SHA}"
           if [ "$actual_sha" != "$expected_sha" ]; then
             {
               echo "❌ Git detection: SHA mismatch"
@@ -259,7 +269,10 @@ jobs:
             echo ''
             echo '✅ Git detection test passed'
           } >> "$GITHUB_STEP_SUMMARY"
-        # yamllint enable rule:line-length
+        env:
+          STEPS_METADATA_GIT_OUTPUTS_REPOSITORY_OWNER: ${{ steps.metadata-git.outputs.repository_owner }}
+          STEPS_METADATA_GIT_OUTPUTS_COMMIT_SHA: ${{ steps.metadata-git.outputs.commit_sha }}
+          # yamllint enable rule:line-length
 
       - name: 'Test JSON parsing'
         shell: bash
@@ -419,12 +432,15 @@ jobs:
           {
             echo '## Cache Key Test'
             echo ''
-            echo "✅ Cache key: ${{ steps.metadata.outputs.cache_key }}"
-            echo "✅ Restore key: ${{ steps.metadata.outputs.cache_restore_key }}"
+            echo "✅ Cache key: ${STEPS_METADATA_OUTPUTS_CACHE_KEY}"
+            echo "✅ Restore key: ${STEPS_METADATA_OUTPUTS_CACHE_RESTORE_KEY}"
             echo ''
             echo '✅ Cache keys successfully used with actions/cache'
           } >> "$GITHUB_STEP_SUMMARY"
-        # yamllint enable rule:line-length
+        env:
+          STEPS_METADATA_OUTPUTS_CACHE_KEY: ${{ steps.metadata.outputs.cache_key }}
+          STEPS_METADATA_OUTPUTS_CACHE_RESTORE_KEY: ${{ steps.metadata.outputs.cache_restore_key }}
+          # yamllint enable rule:line-length
 
   # Test artifact formats
   test-artifact-formats:
@@ -457,7 +473,7 @@ jobs:
         shell: bash
         # yamllint disable rule:line-length
         run: |
-          artifact_path="${{ steps.json-only.outputs.artifact_path }}"
+          artifact_path="${STEPS_JSON_ONLY_OUTPUTS_ARTIFACT_PATH}"
 
           if [ ! -f "$artifact_path/repository-metadata.json" ]; then
             echo "❌ repository-metadata.json not found"
@@ -478,7 +494,9 @@ jobs:
             echo '## JSON-Only Artifact Test'
             echo '✅ Only JSON files created'
           } >> "$GITHUB_STEP_SUMMARY"
-        # yamllint enable rule:line-length
+        env:
+          STEPS_JSON_ONLY_OUTPUTS_ARTIFACT_PATH: ${{ steps.json-only.outputs.artifact_path }}
+          # yamllint enable rule:line-length
 
       - name: 'Test YAML-only artifacts'
         id: yaml-only
@@ -490,7 +508,7 @@ jobs:
         shell: bash
         # yamllint disable rule:line-length
         run: |
-          artifact_path="${{ steps.yaml-only.outputs.artifact_path }}"
+          artifact_path="${STEPS_YAML_ONLY_OUTPUTS_ARTIFACT_PATH}"
 
           if [ -f "$artifact_path/repository-metadata.json" ]; then
             echo "❌ repository-metadata.json should not exist for yaml-only format"
@@ -511,7 +529,9 @@ jobs:
             echo '## YAML-Only Artifact Test'
             echo '✅ Only YAML file created'
           } >> "$GITHUB_STEP_SUMMARY"
-        # yamllint enable rule:line-length
+        env:
+          STEPS_YAML_ONLY_OUTPUTS_ARTIFACT_PATH: ${{ steps.yaml-only.outputs.artifact_path }}
+          # yamllint enable rule:line-length
 
       - name: 'Test both formats (default)'
         id: both-formats
@@ -523,7 +543,7 @@ jobs:
         shell: bash
         # yamllint disable rule:line-length
         run: |
-          artifact_path="${{ steps.both-formats.outputs.artifact_path }}"
+          artifact_path="${STEPS_BOTH_FORMATS_OUTPUTS_ARTIFACT_PATH}"
 
           if [ ! -f "$artifact_path/repository-metadata.json" ]; then
             echo "❌ repository-metadata.json not found"
@@ -544,4 +564,6 @@ jobs:
             echo '## Both Formats Artifact Test'
             echo '✅ All files created (JSON + YAML)'
           } >> "$GITHUB_STEP_SUMMARY"
-        # yamllint enable rule:line-length
+        env:
+          STEPS_BOTH_FORMATS_OUTPUTS_ARTIFACT_PATH: ${{ steps.both-formats.outputs.artifact_path }}
+          # yamllint enable rule:line-length
