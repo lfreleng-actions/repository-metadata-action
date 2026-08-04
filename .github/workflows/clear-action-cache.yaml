@@ -1,0 +1,58 @@
+---
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Thin caller for the reusable cache housekeeping workflow in
+# generic-workflows. Cache clearing is a deliberate, occasional act, so
+# this workflow is dispatch-only: nothing here runs on push or pull
+# request. The filters appear in the "Run workflow" form and pass
+# straight through to the reusable.
+#
+# The reusable needs `actions: write` to list and delete caches. A called
+# workflow cannot hold more permission than its caller, so the calling
+# job below declares the grant.
+#
+# This workflow declares no `concurrency` block on purpose. The reusable
+# serialises itself under a literal group of its own; a caller repeating
+# that group would deadlock against it.
+name: 'Clear Action Cache 🧹'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+    inputs:
+      key_pattern:
+        description: >-
+          Optional substring filter applied to cache keys. Leave
+          empty to remove every cache entry.
+        required: false
+        default: ''
+        type: string
+      ref_filter:
+        description: >-
+          Optional git ref to limit deletion to (e.g.
+          'refs/heads/main' or 'refs/pull/42/merge'). Leave empty
+          to ignore the ref attribute.
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: >-
+          When true, list matching entries but do not delete them.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  clear-action-cache:
+    name: 'Clear Action Cache'
+    permissions:
+      actions: write  # list and delete repository Actions caches
+    # yamllint disable-line rule:line-length
+    uses: lfreleng-actions/generic-workflows/.github/workflows/clear-action-cache.yaml@b80a5a8374fa54986ec542617efaa35e93515af6  # v0.0.3
+    with:
+      key_pattern: ${{ inputs.key_pattern }}
+      ref_filter: ${{ inputs.ref_filter }}
+      dry_run: ${{ inputs.dry_run }}
