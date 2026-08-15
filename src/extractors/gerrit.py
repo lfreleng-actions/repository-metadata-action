@@ -35,7 +35,7 @@ class GerritExtractor(BaseExtractor):
         super().__init__(config, **kwargs)
         self.git_ops = git_ops
 
-    def extract(self) -> GerritMetadata | None:
+    def extract(self) -> GerritMetadata:
         """
         Extract Gerrit metadata from available sources.
 
@@ -45,7 +45,10 @@ class GerritExtractor(BaseExtractor):
         3. Commit message (Change-Id trailer)
 
         Returns:
-            GerritMetadata object if Gerrit data found, None otherwise
+            GerritMetadata populated from the first source that yields data,
+            or an empty GerritMetadata with source="none" when no Gerrit data
+            is present. Never returns None, so the Gerrit fields are always
+            present in the JSON output.
         """
         self.debug("Checking for Gerrit metadata")
 
@@ -69,8 +72,6 @@ class GerritExtractor(BaseExtractor):
             return GerritMetadata(**gerrit_data)
 
         self.debug("No Gerrit metadata found - returning empty GerritMetadata")
-        # Always return GerritMetadata object (with empty fields) instead of None
-        # This ensures Gerrit fields are always present in JSON output
         return GerritMetadata(
             branch="",
             change_id="",

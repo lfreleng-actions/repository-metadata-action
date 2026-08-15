@@ -196,6 +196,7 @@ class TestCommitExtractor:
         result = extractor.extract()
 
         assert result.message == message
+        assert result.message is not None
         assert len(result.message) == 1000
 
     def test_extract_with_unicode_commit_message(self, mock_config, mock_git_ops):
