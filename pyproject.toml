@@ -47,6 +47,9 @@ dev = [
     "pytest-mock>=3.11.0,<4.0.0",
     "ruff>=0.16.1,<1.0.0",
     "mypy>=2.3.0,<3.0.0",
+    # Keep in step with the basedpyright-prek-mirror rev pinned in
+    # .pre-commit-config.yaml, so local runs and CI cannot disagree.
+    "basedpyright==1.39.9",
 ]
 
 [project.urls]
@@ -186,6 +189,26 @@ ignore = [
     "PT019",  # fixture without value is injected as parameter
     "SIM117", # nested with statements (sometimes clearer)
 ]
+
+# basedpyright (type checker) configuration
+#
+# The pre-commit hook installs basedpyright into an isolated virtualenv that
+# does not contain this project's runtime dependencies, so anything that relies
+# on resolving third-party imports has to tolerate them being missing there.
+# Locally (`uv run basedpyright`) the imports do resolve and the checks below
+# are correspondingly stronger.
+[tool.basedpyright]
+pythonVersion = "3.10"
+pythonPlatform = "All"
+typeCheckingMode = "standard"
+include = ["src", "tests"]
+
+# Third-party imports cannot be resolved in the pre-commit.ci sandbox
+reportMissingImports = false
+reportMissingTypeStubs = false
+# Unused imports/variables are already reported by ruff (F401, F841)
+reportUnusedImport = false
+reportUnusedVariable = false
 
 [tool.mypy]
 python_version = "3.10"

@@ -95,11 +95,11 @@ class Config:
 
         # GITHUB_STEP_SUMMARY may not exist in all environments
         step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
-        self.GITHUB_STEP_SUMMARY: Path | None = Path(step_summary) if step_summary else None
+        self.GITHUB_STEP_SUMMARY = Path(step_summary) if step_summary else None
 
         # GITHUB_EVENT_PATH is required for some features
         event_path = os.environ.get("GITHUB_EVENT_PATH")
-        self.GITHUB_EVENT_PATH: Path | None = Path(event_path) if event_path else None
+        self.GITHUB_EVENT_PATH = Path(event_path) if event_path else None
 
     def _load_optional_vars(self) -> None:
         """Load optional environment variables with defaults."""
@@ -160,7 +160,7 @@ class Config:
         actor_id = os.environ.get("GITHUB_ACTOR_ID")
         if actor_id:
             try:
-                self.GITHUB_ACTOR_ID: int | None = InputValidator.validate_integer(
+                self.GITHUB_ACTOR_ID = InputValidator.validate_integer(
                     actor_id, "GITHUB_ACTOR_ID", min_val=1
                 )
             except ValidationError as e:
