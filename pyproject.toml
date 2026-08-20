@@ -49,7 +49,7 @@ dev = [
     "mypy>=2.3.0,<3.0.0",
     # Keep in step with the basedpyright-prek-mirror rev pinned in
     # .pre-commit-config.yaml, so local runs and CI cannot disagree.
-    "basedpyright==1.39.9",
+    "basedpyright==1.39.10",
 ]
 
 [project.urls]
