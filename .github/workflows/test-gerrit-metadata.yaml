@@ -51,12 +51,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Prepare mock event payload (valid gerrit_json)'
         run: |
           cat > mock.json <<'JSON'
@@ -80,7 +74,7 @@ jobs:
           jq '.inputs.gerrit_json |= @json' mock.json > mock-event.json
       - name: 'Test with valid gerrit_json'
         id: test-json
-        uses: ./
+        uses: $/
         env:
           GITHUB_EVENT_PATH_OVERRIDE: mock-event.json
         with:
@@ -120,12 +114,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Prepare mock event payload (invalid JSON + legacy inputs)'
         run: |
           cat > mock-event-invalid.json <<'JSON'
@@ -147,7 +135,7 @@ jobs:
           JSON
       - name: 'Test invalid gerrit_json and valid gerrit_to_platform inputs'
         id: test-invalid
-        uses: ./
+        uses: $/
         env:
           GITHUB_EVENT_PATH_OVERRIDE: mock-event-invalid.json
         with:
@@ -203,12 +191,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       # yamllint disable-line rule:line-length
       - name: 'Prepare mock event payload (legacy gerrit_to_platform inputs only)'
         run: |
@@ -230,7 +212,7 @@ jobs:
           JSON
       - name: 'Test with legacy gerrit_to_platform inputs'
         id: test-legacy
-        uses: ./
+        uses: $/
         env:
           GITHUB_EVENT_PATH_OVERRIDE: mock-event-legacy.json
         with:
@@ -293,12 +275,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Prepare mock event payload (both inputs present)'
         run: |
           cat > mock.json <<'JSON'
@@ -326,7 +302,7 @@ jobs:
             > mock-event-priority.json
       - name: 'Test with both gerrit_json and gerrit_to_platform inputs'
         id: test-priority
-        uses: ./
+        uses: $/
         env:
           GITHUB_EVENT_PATH_OVERRIDE: mock-event-priority.json
         with:
@@ -381,12 +357,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Prepare mock event payload (no Gerrit data)'
         run: |
           cat > mock-event-none.json <<'JSON'
@@ -397,7 +367,7 @@ jobs:
           JSON
       - name: 'Test with no Gerrit data'
         id: test-none
-        uses: ./
+        uses: $/
         env:
           GITHUB_EVENT_PATH_OVERRIDE: mock-event-none.json
         with:
