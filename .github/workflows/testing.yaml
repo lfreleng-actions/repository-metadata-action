@@ -49,7 +49,7 @@ jobs:
 
       - name: 'Test repository metadata action (with GitHub API)'
         id: metadata
-        uses: ./
+        uses: $/
         with:
           debug: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -220,7 +220,7 @@ jobs:
 
       - name: 'Test repository metadata action (with Git detection)'
         id: metadata-git
-        uses: ./
+        uses: $/
         with:
           debug: true
           change_detection: git
@@ -343,12 +343,6 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Test tag detection with mock data'
         shell: bash
         # yamllint disable rule:line-length
@@ -404,15 +398,9 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Get metadata'
         id: metadata
-        uses: ./
+        uses: $/
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           github_summary: true
@@ -457,15 +445,9 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: 'Test JSON-only artifacts'
         id: json-only
-        uses: ./
+        uses: $/
         with:
           artifact_formats: json
 
@@ -500,7 +482,7 @@ jobs:
 
       - name: 'Test YAML-only artifacts'
         id: yaml-only
-        uses: ./
+        uses: $/
         with:
           artifact_formats: yaml
 
@@ -535,7 +517,7 @@ jobs:
 
       - name: 'Test both formats (default)'
         id: both-formats
-        uses: ./
+        uses: $/
         with:
           artifact_formats: json,yaml
 

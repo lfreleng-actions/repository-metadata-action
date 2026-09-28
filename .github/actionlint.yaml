@@ -2,10 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2025 The Linux Foundation
 
-# Path-specific configurations.
 paths:
   .github/workflows/testing.yaml:
     ignore:
-      # Ignore deliberate test failure
+      # Deliberate test failures
       - 'input "invalid_input" is not defined in action .+'
       - 'missing input "input" which is required by action .+'
+      # actionlint v1.17.0 rejects a bare '$/' (an action at the repository
+      # root), which GitHub accepts and runs. The ignore also skips input and
+      # output checks for those steps; drop it once a release with
+      # kjanat/actionlint#200 is pinned (actions-template#253).
+      - 'specifying action "\$/" in invalid format because path is missing'
+  .github/workflows/test-gerrit-metadata.yaml:
+    ignore:
+      # actionlint v1.17.0 rejects a bare '$/' (an action at the repository
+      # root), which GitHub accepts and runs. The ignore also skips input and
+      # output checks for those steps; drop it once a release with
+      # kjanat/actionlint#200 is pinned (actions-template#253).
+      - 'specifying action "\$/" in invalid format because path is missing'
