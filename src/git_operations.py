@@ -20,15 +20,16 @@ from .git_diff_operations import GitDiffOperationsMixin
 class GitOperations(GitDiffOperationsMixin):
     """Wrapper for git operations using GitPython."""
 
-    def __init__(self, repo_path: Path = Path.cwd(), logger: logging.Logger | None = None):
+    def __init__(self, repo_path: Path | None = None, logger: logging.Logger | None = None):
         """
         Initialize git operations for a repository.
 
         Args:
-            repo_path: Path to git repository (defaults to current directory)
+            repo_path: Path to git repository (defaults to the current
+                directory at construction time)
             logger: Optional logger instance
         """
-        self.repo_path = repo_path
+        self.repo_path = repo_path if repo_path is not None else Path.cwd()
         self.logger = logger or logging.getLogger(__name__)
         self._repo: Repo | None = None
         self._has_git: bool | None = None
@@ -62,9 +63,9 @@ class GitOperations(GitDiffOperationsMixin):
         if self._has_git is None:
             self._has_git = (self.repo_path / ".git").exists()
             if self._has_git:
-                self.logger.debug("Git repository detected")
+                self.logger.debug(f"Git repository detected at {self.repo_path}")
             else:
-                self.logger.debug("No git repository found")
+                self.logger.debug(f"No git repository found at {self.repo_path}")
         return self._has_git
 
     def is_shallow_clone(self) -> bool:

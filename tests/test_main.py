@@ -8,7 +8,7 @@ Covers orchestration, output generation, and integration flow.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 import pytest
 
@@ -417,6 +417,7 @@ class TestMainFunction:
         mock_config.GERRIT_SUMMARY = True
         mock_config.GERRIT_INCLUDE_COMMENT = False
         mock_config.ARTIFACT_UPLOAD = False
+        mock_config.GITHUB_WORKSPACE = Path("/workspace")
         mock_get_config.return_value = mock_config
 
         # Setup GitHub API with context manager support
@@ -449,6 +450,8 @@ class TestMainFunction:
         assert mock_write_output.called
         # close() is called via __exit__ in context manager
         assert mock_api.__exit__.called
+        # Git operations target the caller's workspace, not the cwd
+        mock_git_ops.assert_called_once_with(repo_path=Path("/workspace"), logger=ANY)
 
     @patch("src.main.get_config")
     @patch("src.main.GitHubAPI")
