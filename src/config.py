@@ -23,6 +23,7 @@ class Config:
     # Type hints for optional attributes
     GITHUB_STEP_SUMMARY: Path | None
     GITHUB_EVENT_PATH: Path | None
+    GITHUB_WORKSPACE: Path | None
     GITHUB_REF: str | None
     GITHUB_REF_NAME: str | None
     GITHUB_REF_TYPE: str | None
@@ -100,6 +101,11 @@ class Config:
         # GITHUB_EVENT_PATH is required for some features
         event_path = os.environ.get("GITHUB_EVENT_PATH")
         self.GITHUB_EVENT_PATH = Path(event_path) if event_path else None
+
+        # The caller's checkout. The action runs from its own directory,
+        # so git operations must target this rather than the cwd.
+        workspace = os.environ.get("GITHUB_WORKSPACE")
+        self.GITHUB_WORKSPACE = Path(workspace) if workspace else None
 
     def _load_optional_vars(self) -> None:
         """Load optional environment variables with defaults."""

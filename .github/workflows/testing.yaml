@@ -265,6 +265,42 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+          # Git-derived outputs. These stay empty if the action inspects
+          # its own download (which has no .git) instead of the workspace.
+          fail_if_differs() {
+            local label="$1" expected="$2" actual="$3"
+            if [ "$actual" != "$expected" ]; then
+              echo "❌ Git detection: $label mismatch" >> "$GITHUB_STEP_SUMMARY"
+              printf '%s expected:\n%s\n%s actual:\n%s\n' \
+                "$label" "$expected" "$label" "$actual" >&2
+              exit 1
+            fi
+            echo "✅ Git detection: $label matches" >> "$GITHUB_STEP_SUMMARY"
+          }
+          sorted_lines() { printf '%s\n' "$1" | LC_ALL=C sort; }
+          git_changed() { git -c core.quotePath=false diff --name-only -M "$@"; }
+
+          if [ -z "$STEPS_METADATA_GIT_OUTPUTS_COMMIT_MESSAGE" ]; then
+            echo "❌ Git detection: commit_message is empty" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          full_message="$(git show -s --format=%B "$GITHUB_SHA")"
+          fail_if_differs 'commit_message' \
+            "${full_message%%$'\n'*}" "$STEPS_METADATA_GIT_OUTPUTS_COMMIT_MESSAGE"
+
+          last_commit_files="$(git_changed HEAD^1 HEAD)"
+          fail_if_differs 'changed_files_last_commit' \
+            "$(sorted_lines "$last_commit_files")" \
+            "$(sorted_lines "$STEPS_METADATA_GIT_OUTPUTS_CHANGED_FILES_LAST_COMMIT")"
+
+          # change_detection only selects the strategy for pull requests
+          if [ "$GITHUB_EVENT_NAME" = 'pull_request' ]; then
+            pr_files="$(git_changed "origin/${GITHUB_BASE_REF}...HEAD")"
+            fail_if_differs 'changed_files' \
+              "$(sorted_lines "$pr_files")" \
+              "$(sorted_lines "$STEPS_METADATA_GIT_OUTPUTS_CHANGED_FILES")"
+          fi
+
           {
             echo ''
             echo '✅ Git detection test passed'
@@ -272,6 +308,9 @@ jobs:
         env:
           STEPS_METADATA_GIT_OUTPUTS_REPOSITORY_OWNER: ${{ steps.metadata-git.outputs.repository_owner }}
           STEPS_METADATA_GIT_OUTPUTS_COMMIT_SHA: ${{ steps.metadata-git.outputs.commit_sha }}
+          STEPS_METADATA_GIT_OUTPUTS_COMMIT_MESSAGE: ${{ steps.metadata-git.outputs.commit_message }}
+          STEPS_METADATA_GIT_OUTPUTS_CHANGED_FILES: ${{ steps.metadata-git.outputs.changed_files }}
+          STEPS_METADATA_GIT_OUTPUTS_CHANGED_FILES_LAST_COMMIT: ${{ steps.metadata-git.outputs.changed_files_last_commit }}
           # yamllint enable rule:line-length
 
       - name: 'Test JSON parsing'

@@ -430,6 +430,10 @@ You can force a specific detection method using the `change_detection` input:
     change_detection: git
 ```
 
+Git-derived metadata (changed files, commit message and author, Gerrit
+Change-Id) comes from the repository at `GITHUB_WORKSPACE`. Check out
+the repository to the workspace root, not to a `path:` subdirectory.
+
 **GitHub API-based detection** (requires token):
 
 ```yaml

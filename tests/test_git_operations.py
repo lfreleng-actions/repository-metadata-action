@@ -56,6 +56,30 @@ class TestGitOperations:
         ops = GitOperations(repo_path=tmp_path, logger=logger)
         assert ops.logger == logger
 
+    def test_default_repo_path_resolved_at_construction(self, tmp_path, monkeypatch):
+        """The default repo_path is the cwd when constructed, not at import."""
+        monkeypatch.chdir(tmp_path)
+
+        ops = GitOperations()
+        assert ops.repo_path == tmp_path
+
+    def test_repo_path_used_instead_of_cwd(self, tmp_path, monkeypatch):
+        """An explicit repo_path is inspected, whatever the cwd.
+
+        The action runs from its own directory, which has no .git for
+        remote consumers, while the checkout lives elsewhere.
+        """
+        action_dir = tmp_path / "action"
+        action_dir.mkdir()
+        workspace = tmp_path / "workspace"
+        (workspace / ".git").mkdir(parents=True)
+        monkeypatch.chdir(action_dir)
+
+        ops = GitOperations(repo_path=workspace)
+        assert ops.repo_path == workspace
+        assert ops.has_git_repo() is True
+        assert GitOperations().has_git_repo() is False
+
     def test_has_git_repo_true(self, tmp_path):
         """Test has_git_repo returns True when .git exists."""
         git_dir = tmp_path / ".git"

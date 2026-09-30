@@ -145,6 +145,7 @@ class TestConfigOptionalVars:
             "REPO_VISIBILITY": "public",
             "PR_HEAD_REPO_FORK": "true",
             "DEFAULT_BRANCH": "main",
+            "GITHUB_WORKSPACE": str(tmp_path / "workspace"),
         }
 
     def test_load_optional_vars(self, full_env):
@@ -161,6 +162,7 @@ class TestConfigOptionalVars:
             assert config.REPO_VISIBILITY == "public"
             assert config.PR_HEAD_REPO_FORK is True
             assert config.DEFAULT_BRANCH == "main"
+            assert Path(full_env["GITHUB_WORKSPACE"]) == config.GITHUB_WORKSPACE
 
     def test_optional_vars_missing(self, full_env, tmp_path):
         """Test that missing optional vars don't cause errors."""
@@ -184,6 +186,7 @@ class TestConfigOptionalVars:
             assert config.GITHUB_BASE_REF is None
             assert config.GITHUB_HEAD_REF is None
             assert config.GITHUB_ACTOR_ID is None
+            assert config.GITHUB_WORKSPACE is None
 
     def test_actor_id_parsing(self, full_env):
         """Test actor ID is parsed as integer."""

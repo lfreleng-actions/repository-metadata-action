@@ -342,7 +342,7 @@ def main() -> int:
         github_api_context = github_api if github_api else _NullContextManager()
 
         with github_api_context:
-            git_ops = GitOperations(logger=logger)
+            git_ops = GitOperations(repo_path=config.GITHUB_WORKSPACE, logger=logger)
             if git_ops.has_git_repo():
                 logger.debug("Git repository detected")
             else:
