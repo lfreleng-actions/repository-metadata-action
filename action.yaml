@@ -168,25 +168,25 @@ outputs:
 
   # Changed files outputs
   changed_files:
-    description: 'List of changed files (space-separated, for PRs and pushes)'
+    description: 'List of changed files (newline-separated, push/PR events)'
     value: ${{ steps.metadata.outputs.changed_files }}
   changed_files_count:
     description: 'Number of changed files'
     value: ${{ steps.metadata.outputs.changed_files_count }}
   changed_files_added:
-    description: 'List of added files (space-separated)'
+    description: 'List of added files (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_added }}
   changed_files_added_count:
     description: 'Number of added files'
     value: ${{ steps.metadata.outputs.changed_files_added_count }}
   changed_files_modified:
-    description: 'List of modified files (space-separated)'
+    description: 'List of modified files (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_modified }}
   changed_files_modified_count:
     description: 'Number of modified files'
     value: ${{ steps.metadata.outputs.changed_files_modified_count }}
   changed_files_removed:
-    description: 'List of removed files (space-separated)'
+    description: 'List of removed files (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_removed }}
   changed_files_removed_count:
     description: 'Number of removed files'
@@ -194,26 +194,26 @@ outputs:
 
   # Changed files last commit outputs
   changed_files_last_commit:
-    description: 'List of changed files in last commit (space-separated)'
+    description: 'List of changed files in last commit (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_last_commit }}
   changed_files_last_commit_count:
     description: 'Number of changed files in last commit'
     value: ${{ steps.metadata.outputs.changed_files_last_commit_count }}
   changed_files_last_commit_added:
-    description: 'List of added files in last commit (space-separated)'
+    description: 'List of added files in last commit (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_last_commit_added }}
   changed_files_last_commit_added_count:
     description: 'Number of added files in last commit'
     value: ${{ steps.metadata.outputs.changed_files_last_commit_added_count }}
   changed_files_last_commit_modified:
-    description: 'List of modified files in last commit (space-separated)'
+    description: 'List of modified files in last commit (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_last_commit_modified }}
   changed_files_last_commit_modified_count:
     description: 'Number of modified files in last commit'
     # yamllint disable-line rule:line-length
     value: ${{ steps.metadata.outputs.changed_files_last_commit_modified_count }}
   changed_files_last_commit_removed:
-    description: 'List of removed files in last commit (space-separated)'
+    description: 'List of removed files in last commit (newline-separated)'
     value: ${{ steps.metadata.outputs.changed_files_last_commit_removed }}
   changed_files_last_commit_removed_count:
     # yamllint disable-line rule:line-length

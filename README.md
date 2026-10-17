@@ -189,6 +189,37 @@ steps:
 
 <!-- markdownlint-enable MD013 -->
 
+The `changed_files*` outputs populate for `push`, `pull_request` and
+`pull_request_target` events. For any other event, including
+`workflow_dispatch`, they are empty and the counts are `0`.
+
+### Last Commit Changed Files Outputs
+
+<!-- markdownlint-disable MD013 -->
+
+| Variable Name                            | Description                                               |
+| ---------------------------------------- | --------------------------------------------------------- |
+| changed_files_last_commit                | List of changed files in last commit (newline-separated)  |
+| changed_files_last_commit_count          | Number of changed files in last commit                    |
+| changed_files_last_commit_added          | List of added files in last commit (newline-separated)    |
+| changed_files_last_commit_added_count    | Number of added files in last commit                      |
+| changed_files_last_commit_modified       | List of modified files in last commit (newline-separated) |
+| changed_files_last_commit_modified_count | Number of modified files in last commit                   |
+| changed_files_last_commit_removed        | List of removed files in last commit (newline-separated)  |
+| changed_files_last_commit_removed_count  | Number of removed files in last commit                    |
+
+<!-- markdownlint-enable MD013 -->
+
+The `changed_files_last_commit*` outputs diff the checked-out `HEAD`
+against its first parent, so they work for any event type, including
+`workflow_dispatch`. The parent commit must be present in the checkout:
+use `fetch-depth: 2` or deeper. See
+[Changed Files for a Gerrit Change](#changed-files-for-a-gerrit-change).
+
+All file list outputs separate entries with newlines, not spaces, so
+paths containing spaces survive intact. Split them on newlines, for
+example with `while IFS= read -r file` or `mapfile -t`.
+
 ### Artifact Outputs
 
 <!-- markdownlint-disable MD013 -->
@@ -627,6 +658,36 @@ jobs:
       - name: 'Use Gerrit data'
         run: |
           echo "Change: ${{ steps.metadata.outputs.gerrit_json }}"
+```
+
+### Changed Files for a Gerrit Change
+
+`gerrit_to_platform` dispatches a Gerrit change as a `workflow_dispatch`
+event, so the `changed_files*` outputs are empty. Use the
+`changed_files_last_commit*` outputs instead. A Gerrit change is always a
+single commit, so diffing `HEAD` against its parent yields the
+files the change touches. `checkout-gerrit-change-action` fetches with
+`fetch-depth: 2` by default, which provides that parent.
+
+```yaml
+steps:
+  # Configure the checkout inputs as that action's README describes
+  - name: 'Checkout Gerrit change'
+    uses: lfreleng-actions/checkout-gerrit-change-action@main
+
+  - name: 'Gather metadata'
+    id: metadata
+    uses: lfreleng-actions/repository-metadata-action@main
+
+  - name: 'List files in the change'
+    env:
+      CHANGED: ${{ steps.metadata.outputs.changed_files_last_commit }}
+    run: |
+      while IFS= read -r file; do
+        if [ -n "$file" ]; then
+          echo "Changed: $file"
+        fi
+      done <<< "$CHANGED"
 ```
 
 ### Gerrit Features
