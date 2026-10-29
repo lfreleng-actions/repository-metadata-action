@@ -588,3 +588,120 @@ jobs:
         env:
           STEPS_BOTH_FORMATS_OUTPUTS_ARTIFACT_PATH: ${{ steps.both-formats.outputs.artifact_path }}
           # yamllint enable rule:line-length
+
+  # setup-uv must not run an interpreter, or read uv settings, from the
+  # caller's checkout. Plant a .venv, a .python-version and a uv.toml at
+  # the workspace root whose interpreters record that they started.
+  test-workspace-python-isolation:
+    name: 'Test workspace Python files are not used'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read  # Required to read PR context for metadata extraction
+    timeout-minutes: 5
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Required for changed files detection
+          persist-credentials: false
+
+      - name: 'Plant .venv and .python-version interpreters'
+        shell: bash
+        run: |
+          # Each planted interpreter appends to the marker and exits 1
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/planted-ran"
+          rm -f "$marker"
+          plant_exe() {
+            printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 1\n' \
+              "$2" "$marker" > "$1"
+            chmod +x "$1"
+          }
+          mkdir -p .venv/bin
+          printf 'home = /usr/bin\nversion = 3.12.0\n' > .venv/pyvenv.cfg
+          plant_exe .venv/bin/python3 venv
+          plant_exe .venv/bin/python venv
+          plant_exe planted-pv-python python-version
+          echo "${GITHUB_WORKSPACE}/planted-pv-python" > .python-version
+
+      # Without a uv.toml, uv reaches interpreter discovery
+      - name: 'Run action with planted interpreters'
+        id: planted-venv
+        uses: $/
+        with:
+          github_token: ${{ github.token }}
+          artifact_upload: 'false'
+
+      - name: 'Check no planted interpreter ran'
+        shell: bash
+        run: |
+          # The marker exists only if a planted interpreter started
+          if [ -e "${RUNNER_TEMP}/planted-ran" ]; then
+            echo '❌ A planted workspace interpreter ran:'
+            cat "${RUNNER_TEMP}/planted-ran"
+            exit 1
+          fi
+          echo '✅ No planted interpreter ran'
+
+      - name: 'Plant uv.toml'
+        shell: bash
+        run: |
+          # setup-uv would install uv 0.0.1 and use this cache directory
+          printf '%s\n' 'cache-dir = "/nonexistent/planted-cache"' \
+            'required-version = "==0.0.1"' > uv.toml
+
+      - name: 'Run action with planted interpreters and uv.toml'
+        id: planted-all
+        uses: $/
+        with:
+          github_token: ${{ github.token }}
+          artifact_upload: 'false'
+
+      - name: 'Validate outputs and marker'
+        shell: bash
+        env:
+          # yamllint disable rule:line-length
+          VENV_FULL_NAME: ${{ steps.planted-venv.outputs.repository_full_name }}
+          VENV_COMMIT_SHA: ${{ steps.planted-venv.outputs.commit_sha }}
+          VENV_METADATA_JSON: ${{ steps.planted-venv.outputs.metadata_json }}
+          ALL_FULL_NAME: ${{ steps.planted-all.outputs.repository_full_name }}
+          ALL_COMMIT_SHA: ${{ steps.planted-all.outputs.commit_sha }}
+          ALL_METADATA_JSON: ${{ steps.planted-all.outputs.metadata_json }}
+          # yamllint enable rule:line-length
+        run: |
+          # Both runs must produce real metadata and start no planted file
+          set -euo pipefail
+          status=0
+          if [ -e "${RUNNER_TEMP}/planted-ran" ]; then
+            echo '❌ A planted workspace interpreter ran:'
+            cat "${RUNNER_TEMP}/planted-ran"
+            status=1
+          fi
+          for run in VENV ALL; do
+            full_name_var="${run}_FULL_NAME"
+            sha_var="${run}_COMMIT_SHA"
+            json_var="${run}_METADATA_JSON"
+            if [ "${!full_name_var}" != "$GITHUB_REPOSITORY" ]; then
+              echo "❌ ${run}: repository_full_name='${!full_name_var}'"
+              status=1
+            fi
+            if [ "${!sha_var}" != "$GITHUB_SHA" ]; then
+              echo "❌ ${run}: commit_sha='${!sha_var}'"
+              status=1
+            fi
+            if ! printf '%s' "${!json_var}" | jq -e .repository >/dev/null
+            then
+              echo "❌ ${run}: metadata_json is not valid metadata"
+              status=1
+            fi
+          done
+          [ "$status" -eq 0 ] && echo '✅ Outputs valid; no planted file used'
+          exit "$status"

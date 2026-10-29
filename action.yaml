@@ -253,10 +253,20 @@ runs:
       with:
         python-version: '3.11'
 
+    # setup-uv runs the interpreter that 'uv python find' selects in its
+    # working directory, and reads uv.toml/pyproject.toml settings there.
+    # Point it at this action's own files, not the caller's checkout in
+    # the workspace; the env settings also stop uv from using a .venv,
+    # .python-version or uv config from a parent directory.
     - name: 'Install uv'
       # yamllint disable-line rule:line-length
       uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      env:
+        UV_NO_CONFIG: '1'
+        UV_SYSTEM_PYTHON: '1'
+        UV_NO_PROJECT: '1'
       with:
+        working-directory: ${{ github.action_path }}
         enable-cache: false
 
     - name: 'Install Python dependencies'
