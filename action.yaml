@@ -247,39 +247,70 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # The one interpreter this action runs: setup-python's absolute
+    # python-path output. Later steps never look Python up on PATH or
+    # let uv choose one, since a caller's earlier step can set PATH,
+    # UV_PYTHON, VIRTUAL_ENV and similar variables for this job.
     - name: 'Setup Python'
+      id: setup-python
       # yamllint disable-line rule:line-length
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: '3.11'
 
-    # setup-uv runs the interpreter that 'uv python find' selects in its
-    # working directory, and reads uv.toml/pyproject.toml settings there.
-    # Point it at this action's own files, not the caller's checkout in
-    # the workspace; the env settings also stop uv from using a .venv,
-    # .python-version or uv config from a parent directory.
+    # setup-uv's only uv call for these inputs is "uv python find",
+    # whose result it executes. An invalid preference makes uv refuse
+    # its arguments before any lookup; setup-uv then reports the
+    # Python version as "unknown", which nothing reads. The working
+    # directory keeps uv away from the caller's checkout.
     - name: 'Install uv'
+      id: setup-uv
       # yamllint disable-line rule:line-length
       uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      with:
+        working-directory: "${{ github.action_path }}"
+        # Without it setup-uv puts the caller's HOME/XDG_* bin dir on PATH
+        tool-bin-dir: "${{ runner.temp }}/repository-metadata-action/bin"
+        # The post-step "uv cache prune" would hit the invalid preference
+        enable-cache: false
       env:
         UV_NO_CONFIG: '1'
-        UV_SYSTEM_PYTHON: '1'
         UV_NO_PROJECT: '1'
-      with:
-        working-directory: ${{ github.action_path }}
-        enable-cache: false
+        UV_PYTHON_PREFERENCE: 'lookup-disabled'
+        # Inherited, it makes setup-uv probe uv, which the line above fails
+        UV_PYTHON_ARCH: ''
+        # yamllint disable-line rule:line-length
+        UV_PYTHON_INSTALL_DIR: "${{ runner.temp }}/repository-metadata-action/python"
 
     - name: 'Install Python dependencies'
       shell: bash
+      working-directory: "${{ github.action_path }}"
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        UV: "${{ steps.setup-uv.outputs.uv-path }}"
+        INTERPRETER: "${{ steps.setup-python.outputs.python-path }}"
+        # An action-owned cache, not one a caller variable points at
+        UV_CACHE_DIR: "${{ runner.temp }}/repository-metadata-action/cache"
       run: |
-        cd "${ACTION_PATH}"
-        uv pip install --system .
+        # Install into the trusted interpreter only
+        set -euo pipefail
+        case "$INTERPRETER" in
+          /*) ;;
+          *) echo "Error: setup-python gave no absolute interpreter ❌"
+             exit 1 ;;
+        esac
+        # The package build runs Python without -I; drop the caller's
+        # PYTHON* settings so they cannot redirect it.
+        while IFS= read -r name; do
+          case "$name" in
+            PYTHON*|__PYVENV_LAUNCHER__) unset "$name" ;;
+          esac
+        done < <(compgen -e)
+        "$UV" pip install --no-config --python "$INTERPRETER" .
 
     - name: 'Extract Repository Metadata'
       id: metadata
       shell: bash
+      working-directory: "${{ github.action_path }}"
       env:
         DEBUG_MODE: ${{ inputs.debug }}
         GITHUB_TOKEN_INPUT: ${{ inputs.github_token }}
@@ -296,11 +327,18 @@ runs:
         GITHUB_ACTOR_ID: ${{ github.actor_id }}
         PR_HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        ACTION_PATH: ${{ github.action_path }}
+        INTERPRETER: "${{ steps.setup-python.outputs.python-path }}"
       run: |
-        # Execute Python metadata extraction
-        cd "${ACTION_PATH}"
-        python -m src.main
+        # Isolated mode ignores PYTHON* settings and the working
+        # directory; src imports from the package installed above.
+        # PYTHONEXECUTABLE and __PYVENV_LAUNCHER__ still redirect the
+        # interpreter on macOS under -I, so drop the caller's copies.
+        while IFS= read -r name; do
+          case "$name" in
+            PYTHON*|__PYVENV_LAUNCHER__) unset "$name" ;;
+          esac
+        done < <(compgen -e)
+        "$INTERPRETER" -I -m src.main
 
     - name: 'Upload metadata artifact'
       if: inputs.artifact_upload == 'true'
