@@ -753,6 +753,13 @@ input in your workflows going forward.
 ## Notes
 
 - The action uses `set -euo pipefail` for robust error handling
+- The action starts Python through the absolute interpreter that
+  `actions/setup-python` reports, in isolated mode (`-I`), so caller
+  settings such as `UV_PYTHON`, `VIRTUAL_ENV` or `PYTHONPATH` cannot
+  choose it. The action trusts the caller's `PATH`: a caller step that
+  puts a directory from its checkout on `PATH` controls the tools every
+  `shell: bash` step starts, and no composite action can defend
+  against that
 - For pull requests, changed files detection works best when you check out
   the repository with full git history (`fetch-depth: 0`)
 - The `tag_push_event` output specifically detects version tags that start

@@ -705,3 +705,183 @@ jobs:
           done
           [ "$status" -eq 0 ] && echo '✅ Outputs valid; no planted file used'
           exit "$status"
+
+  # A composite action inherits the caller job's environment. Export
+  # hostile interpreter settings through GITHUB_ENV, the way code from
+  # a caller's checkout could, and plant bait that records any start.
+  test-caller-environment-isolation:
+    name: 'Test caller environment isolation'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      pull-requests: read  # Required to read PR context for metadata extraction
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        selector: [request, active-environment]
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Required for changed files detection
+          persist-credentials: false
+
+      - name: 'Plant bait and hostile settings'
+        shell: bash
+        env:
+          SELECTOR: ${{ matrix.selector }}
+        run: |
+          # Every bait appends to the marker when it starts or imports
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/bait-ran"
+          rm -f "$marker"
+          ws="$GITHUB_WORKSPACE"
+          plant_exe() {
+            printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 1\n' \
+              "$1" "$marker" > "$2"
+            chmod +x "$2"
+          }
+          plant_module() {
+            mkdir -p "$(dirname "$2")"
+            printf 'with open(%s, "a") as f:\n    f.write("%s\\n")\n' \
+              "'$marker'" "module $1" > "$2"
+          }
+          mkdir -p .venv/bin .venv/conda-meta xdg-bin pkg pyhome userbase
+          for name in python python3 python3.13 uv; do
+            plant_exe "venv $name" ".venv/bin/$name"
+          done
+          printf 'home = /usr/bin\nversion = 3.13.0\n' > .venv/pyvenv.cfg
+          for name in env bash; do
+            plant_exe "xdg $name" "xdg-bin/$name"
+          done
+          for dir in . pkg; do
+            for mod in json base64 sitecustomize usercustomize; do
+              plant_module "$mod" "$dir/$mod.py"
+            done
+            plant_module urllib "$dir/urllib/__init__.py"
+          done
+          plant_module startup startup.py
+
+          case "$RUNNER_ARCH" in
+            ARM64) arch=aarch64 ;;
+            *) arch=x86_64 ;;
+          esac
+          # The runner puts GITHUB_PATH entries ahead of PATH, so this
+          # puts the bait first, as a caller's earlier step could
+          echo "$ws/.venv/bin" >> "$GITHUB_PATH"
+          {
+            echo 'PYTHONPATH=pkg:.'
+            echo "PYTHONHOME=$ws/pyhome"
+            echo "PYTHONUSERBASE=$ws/userbase"
+            echo "PYTHONSTARTUP=$ws/startup.py"
+            echo "PYTHONEXECUTABLE=$ws/.venv/bin/python"
+            echo "__PYVENV_LAUNCHER__=$ws/.venv/bin/python"
+            echo 'UV_NO_CACHE=1'
+            echo "UV_PYTHON_ARCH=$arch"
+            echo 'UV_PYTHON_INSTALL_MIRROR=https://127.0.0.1:9'
+            echo "XDG_BIN_HOME=$ws/xdg-bin"
+            if [ "$SELECTOR" = request ]; then
+              echo "UV_PYTHON=$ws/.venv/bin/python"
+              echo "UV_PYTHON_SEARCH_PATH=$ws/.venv/bin"
+              echo "UV_PYTHON_INSTALL_DIR=$ws/uv-python"
+              echo 'UV_PYTHON_PREFERENCE=only-system'
+            else
+              # UV_PYTHON stays unset so it cannot mask this discovery
+              echo "VIRTUAL_ENV=$ws/.venv"
+              echo "CONDA_PREFIX=$ws/.venv"
+              echo 'CONDA_DEFAULT_ENV=base'
+              echo "UV_INTERNAL__PARENT_INTERPRETER=$ws/.venv/bin/python"
+              echo 'UV_INTERNAL__TEST_PYTHON_MANAGED=1'
+              echo "UV_CACHE_DIR=$ws/uv-cache"
+            fi
+          } >> "$GITHUB_ENV"
+
+      - name: 'Control: prove the bait is live'
+        shell: bash
+        run: |
+          # A Python that is not isolated must trip the bait. The bait
+          # exits 1 and steps run under bash -e, hence "|| true"; the
+          # marker checks below decide the result. The real interpreter
+          # is named by absolute path: command -v would return the bait.
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/bait-ran"
+          python3 -c pass || true
+          env -u PYTHONHOME -u PYTHONEXECUTABLE -u __PYVENV_LAUNCHER__ \
+            /usr/bin/python3 -c 'import json' || true
+          status=0
+          for want in 'venv python3' 'module json'; do
+            if ! grep -q "^$want" "$marker" 2>/dev/null; then
+              echo "❌ Control did not trip bait: $want"
+              status=1
+            fi
+          done
+          [ "$status" -eq 0 ] || exit 1
+          rm -f "$marker"
+          echo '✅ Bait is live'
+
+      - name: 'Run action (cold)'
+        id: cold
+        uses: $/
+        with:
+          github_token: ${{ github.token }}
+          artifact_upload: 'false'
+
+      - name: 'Run action (warm)'
+        id: warm
+        uses: $/
+        with:
+          github_token: ${{ github.token }}
+          artifact_upload: 'false'
+
+      - name: 'Verify no bait ran and outputs are valid'
+        shell: bash
+        env:
+          COLD_FULL_NAME: ${{ steps.cold.outputs.repository_full_name }}
+          COLD_COMMIT_SHA: ${{ steps.cold.outputs.commit_sha }}
+          COLD_METADATA_JSON: ${{ steps.cold.outputs.metadata_json }}
+          WARM_FULL_NAME: ${{ steps.warm.outputs.repository_full_name }}
+          WARM_COMMIT_SHA: ${{ steps.warm.outputs.commit_sha }}
+          WARM_METADATA_JSON: ${{ steps.warm.outputs.metadata_json }}
+        run: |
+          # Both runs must produce real metadata and start no bait
+          set -euo pipefail
+          status=0
+          if [ -e "${RUNNER_TEMP}/bait-ran" ]; then
+            echo '❌ Bait ran:'
+            cat "${RUNNER_TEMP}/bait-ran"
+            status=1
+          fi
+          case ":$PATH:" in
+            *":$GITHUB_WORKSPACE/xdg-bin:"*)
+              echo '❌ The caller XDG_BIN_HOME directory is on PATH'
+              status=1 ;;
+          esac
+          for run in COLD WARM; do
+            full_name_var="${run}_FULL_NAME"
+            sha_var="${run}_COMMIT_SHA"
+            json_var="${run}_METADATA_JSON"
+            if [ "${!full_name_var}" != "$GITHUB_REPOSITORY" ]; then
+              echo "❌ ${run}: repository_full_name='${!full_name_var}'"
+              status=1
+            fi
+            if [ "${!sha_var}" != "$GITHUB_SHA" ]; then
+              echo "❌ ${run}: commit_sha='${!sha_var}'"
+              status=1
+            fi
+            if ! printf '%s' "${!json_var}" | jq -e .repository >/dev/null
+            then
+              echo "❌ ${run}: metadata_json is not valid metadata"
+              status=1
+            fi
+          done
+          [ "$status" -eq 0 ] && echo '✅ Outputs valid; no bait ran'
+          exit "$status"
