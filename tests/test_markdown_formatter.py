@@ -19,6 +19,7 @@ from src.models import (
     PullRequestMetadata,
     RefMetadata,
     RepositoryMetadata,
+    WorkflowRunMetadata,
 )
 
 
@@ -193,6 +194,40 @@ class TestMarkdownFormatter:
         text = "file`with`backticks.txt"
         result = formatter._escape_markdown(text)
         assert "\\`" in result
+
+    def test_format_includes_workflow_run(self, formatter, basic_metadata):
+        """Test the workflow run rows follow the cache rows, with a link."""
+        url = "https://github.com/test-owner/test-repo/actions/runs/1234567890/attempts/2"
+        metadata = basic_metadata.model_copy(
+            update={
+                "workflow_run": WorkflowRunMetadata(
+                    run_id=1234567890,
+                    run_attempt=2,
+                    run_number=42,
+                    workflow="CI",
+                    workflow_ref="test-owner/test-repo/.github/workflows/ci.yaml@refs/heads/main",
+                    job="build",
+                    run_url=url,
+                )
+            }
+        )
+
+        result = formatter.format(metadata)
+
+        assert "### Workflow Run" in result
+        assert result.index("### Cache") < result.index("### Workflow Run")
+        assert "| run_id | `1234567890` |" in result
+        assert "| run_attempt | `2` |" in result
+        assert "| run_number | `42` |" in result
+        assert "| workflow | `CI` |" in result
+        assert "| job | `build` |" in result
+        assert f"| run_url | [{url}]({url}) |" in result
+
+    def test_format_omits_empty_workflow_run(self, formatter, basic_metadata):
+        """Test no workflow run section appears when nothing is known."""
+        result = formatter.format(basic_metadata)
+
+        assert "### Workflow Run" not in result
 
 
 class TestMarkdownFormatterLastCommit:

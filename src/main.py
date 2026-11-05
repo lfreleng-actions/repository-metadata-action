@@ -26,6 +26,7 @@ from .extractors import (
     PullRequestExtractor,
     RefExtractor,
     RepositoryExtractor,
+    WorkflowRunExtractor,
 )
 from .formatters import ArtifactGenerator, JsonFormatter, MarkdownFormatter, YamlFormatter
 from .git_operations import GitOperations
@@ -198,6 +199,9 @@ def _extract_metadata(
     logger.info("Checking for Gerrit metadata...")
     gerrit = GerritExtractor(config, git_ops, logger=logger).extract()
 
+    logger.info("Extracting workflow run metadata...")
+    workflow_run = WorkflowRunExtractor(config, logger=logger).extract()
+
     return CompleteMetadata(
         repository=repository,
         event=event,
@@ -209,6 +213,7 @@ def _extract_metadata(
         changed_files=changed_files,
         changed_files_last_commit=changed_files_last_commit,
         gerrit_environment=gerrit,
+        workflow_run=workflow_run,
     )
 
 

@@ -23,6 +23,8 @@ information.
 - 📝 **Commit Metadata**: SHA, message, author
 - 🔄 **Pull Request Context**: PR number, source/target branches, fork
   detection
+- 🏃 **Workflow Run**: Run ID, attempt, number, workflow, job and run URL,
+  so later runs can find this run's artefacts
 - 🎯 **Event Type Detection**: Automatically detect push, PR, release,
   schedule, etc.
 - 🔑 **Cache Key Generation**: Smart cache keys for workflow optimization
@@ -157,6 +159,26 @@ steps:
 | pr_commits_count   | Number of commits in the pull request             |
 
 <!-- markdownlint-enable MD013 -->
+
+### Workflow Run Outputs
+
+<!-- markdownlint-disable MD013 -->
+
+| Variable Name | Description                                                |
+| ------------- | ---------------------------------------------------------- |
+| run_id        | Workflow run ID                                            |
+| run_attempt   | Workflow run attempt (1 for the first attempt)             |
+| run_number    | Workflow run number                                        |
+| workflow      | Workflow name                                              |
+| workflow_ref  | Workflow file reference (owner/repo/path@ref)              |
+| job           | Job ID of the job that ran the action                      |
+| run_url       | URL of the workflow run (names the attempt after a re-run) |
+
+<!-- markdownlint-enable MD013 -->
+
+These come from the runner's `GITHUB_*` environment, need no inputs, and
+also appear under `workflow_run` in `metadata_json` and `metadata_yaml`.
+`run_url` ends in `/attempts/<n>` when `run_attempt` is greater than 1.
 
 ### Actor Outputs
 
@@ -360,6 +382,15 @@ Both JSON and YAML outputs contain all metadata in structured formats:
   "changed_files": {
     "count": 0,
     "files": null
+  },
+  "workflow_run": {
+    "run_id": 1234567890,
+    "run_attempt": 1,
+    "run_number": 42,
+    "workflow": "CI",
+    "workflow_ref": "owner-name/repo-name/.github/workflows/ci.yaml@refs/heads/main",
+    "job": "build",
+    "run_url": "https://github.com/owner-name/repo-name/actions/runs/1234567890"
   }
 }
 ```
@@ -407,6 +438,14 @@ cache:
 changed_files:
   count: 0
   files: null
+workflow_run:
+  run_id: 1234567890
+  run_attempt: 1
+  run_number: 42
+  workflow: CI
+  workflow_ref: owner-name/repo-name/.github/workflows/ci.yaml@refs/heads/main
+  job: build
+  run_url: https://github.com/owner-name/repo-name/actions/runs/1234567890
 ```
 
 ## Artifact Upload

@@ -9,6 +9,9 @@ Centralizes magic numbers and configuration values for maintainability.
 # GitHub API limits
 MAX_PR_FILES = 3000  # Maximum number of files GitHub API returns per PR
 
+# GitHub defaults
+DEFAULT_GITHUB_SERVER_URL = "https://github.com"  # When GITHUB_SERVER_URL is unset
+
 # Git operation defaults
 DEFAULT_GIT_FETCH_DEPTH = 15  # Default depth for git fetch --deepen in shallow clones
 
