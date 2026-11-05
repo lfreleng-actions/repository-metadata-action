@@ -6,11 +6,13 @@ Tests for main.py module.
 Covers orchestration, output generation, and integration flow.
 """
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import ANY, Mock, patch
 
 import pytest
+import yaml
 
 from src.exceptions import MetadataExtractionError
 from src.main import main, print_summary, setup_logging, write_github_output, write_step_summary
@@ -25,6 +27,7 @@ from src.models import (
     PullRequestMetadata,
     RefMetadata,
     RepositoryMetadata,
+    WorkflowRunMetadata,
 )
 
 
@@ -734,6 +737,100 @@ class TestMainFunction:
         assert result == 0
         # GitHub API should not be initialized
         assert not mock_github_api.called
+
+    @patch("src.main.get_config")
+    @patch("src.main.GitOperations")
+    @patch("src.main.RepositoryExtractor")
+    @patch("src.main.EventExtractor")
+    @patch("src.main.RefExtractor")
+    @patch("src.main.CommitExtractor")
+    @patch("src.main.PullRequestExtractor")
+    @patch("src.main.ActorExtractor")
+    @patch("src.main.CacheExtractor")
+    @patch("src.main.ChangedFilesExtractor")
+    @patch("src.main.ChangedFilesLastCommitExtractor")
+    @patch("src.main.GerritExtractor")
+    @patch("src.main.WorkflowRunExtractor")
+    @patch("src.main.write_github_output")
+    def test_main_records_workflow_run(
+        self,
+        mock_write_output,
+        mock_run_ext,
+        mock_gerrit_ext,
+        mock_last_commit_ext,
+        mock_changed_ext,
+        mock_cache_ext,
+        mock_actor_ext,
+        mock_pr_ext,
+        mock_commit_ext,
+        mock_ref_ext,
+        mock_event_ext,
+        mock_repo_ext,
+        mock_git_ops,
+        mock_get_config,
+        sample_metadata,
+    ):
+        """Test the workflow run reaches the outputs and metadata_json."""
+        mock_config = Mock()
+        mock_config.GITHUB_TOKEN = None
+        mock_config.DEBUG_MODE = False
+        mock_config.GITHUB_OUTPUT = Path("/tmp/output")
+        mock_config.GITHUB_STEP_SUMMARY = None
+        mock_config.GERRIT_INCLUDE_COMMENT = False
+        mock_config.ARTIFACT_UPLOAD = False
+        mock_get_config.return_value = mock_config
+        mock_git_ops.return_value.has_git_repo.return_value = False
+
+        url = "https://github.com/test-owner/test-repo/actions/runs/1234567890"
+        workflow_run = WorkflowRunMetadata(
+            run_id=1234567890,
+            run_attempt=1,
+            run_number=42,
+            workflow="CI",
+            workflow_ref="test-owner/test-repo/.github/workflows/ci.yaml@refs/heads/main",
+            job="build",
+            run_url=url,
+        )
+        mock_repo_ext.return_value.extract.return_value = sample_metadata.repository
+        mock_event_ext.return_value.extract.return_value = sample_metadata.event
+        mock_ref_ext.return_value.extract.return_value = sample_metadata.ref
+        mock_commit_ext.return_value.extract.return_value = sample_metadata.commit
+        mock_pr_ext.return_value.extract.return_value = sample_metadata.pull_request
+        mock_actor_ext.return_value.extract.return_value = sample_metadata.actor
+        mock_cache_ext.return_value.extract.return_value = sample_metadata.cache
+        mock_changed_ext.return_value.extract.return_value = sample_metadata.changed_files
+        mock_last_commit_ext.return_value.extract.return_value = (
+            sample_metadata.changed_files_last_commit
+        )
+        mock_gerrit_ext.return_value.extract.return_value = sample_metadata.gerrit_environment
+        mock_run_ext.return_value.extract.return_value = workflow_run
+
+        assert main() == 0
+
+        outputs = mock_write_output.call_args_list[0].args[0]
+        expected = {
+            "run_id": "1234567890",
+            "run_attempt": "1",
+            "run_number": "42",
+            "workflow": "CI",
+            "workflow_ref": "test-owner/test-repo/.github/workflows/ci.yaml@refs/heads/main",
+            "job": "build",
+            "run_url": url,
+        }
+        for name, value in expected.items():
+            assert outputs[name] == value
+
+        metadata_json = json.loads(outputs["metadata_json"])
+        assert metadata_json["workflow_run"] == {
+            "run_id": 1234567890,
+            "run_attempt": 1,
+            "run_number": 42,
+            "workflow": "CI",
+            "workflow_ref": "test-owner/test-repo/.github/workflows/ci.yaml@refs/heads/main",
+            "job": "build",
+            "run_url": url,
+        }
+        assert yaml.safe_load(outputs["metadata_yaml"])["workflow_run"]["run_url"] == url
 
 
 class TestMainLastCommitFiles:

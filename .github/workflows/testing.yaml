@@ -367,6 +367,60 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
         # yamllint enable rule:line-length
 
+      - name: 'Validate workflow run outputs'
+        shell: bash
+        env:
+          METADATA_JSON: ${{ steps.metadata.outputs.metadata_json }}
+          RUN_ID: ${{ steps.metadata.outputs.run_id }}
+          RUN_ATTEMPT: ${{ steps.metadata.outputs.run_attempt }}
+          RUN_NUMBER: ${{ steps.metadata.outputs.run_number }}
+          WORKFLOW: ${{ steps.metadata.outputs.workflow }}
+          WORKFLOW_REF: ${{ steps.metadata.outputs.workflow_ref }}
+          JOB: ${{ steps.metadata.outputs.job }}
+          RUN_URL: ${{ steps.metadata.outputs.run_url }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_RUN_NUMBER: ${{ github.run_number }}
+          EXPECTED_WORKFLOW: ${{ github.workflow }}
+          EXPECTED_WORKFLOW_REF: ${{ github.workflow_ref }}
+          EXPECTED_JOB: ${{ github.job }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Each output must match the run that produced it
+          set -euo pipefail
+          failed=0
+          check() {
+            if [ "$2" = "$3" ]; then
+              echo "✅ $1: $2"
+            else
+              echo "❌ $1: expected '$3', got '$2'"
+              failed=1
+            fi
+          }
+          expected_url="${SERVER_URL}/${REPOSITORY}/actions/runs/${EXPECTED_RUN_ID}"
+          if [ "$EXPECTED_RUN_ATTEMPT" -gt 1 ]; then
+            expected_url="${expected_url}/attempts/${EXPECTED_RUN_ATTEMPT}"
+          fi
+          {
+            echo '## Workflow Run Outputs'
+            echo ''
+            check run_id "$RUN_ID" "$EXPECTED_RUN_ID"
+            check run_attempt "$RUN_ATTEMPT" "$EXPECTED_RUN_ATTEMPT"
+            check run_number "$RUN_NUMBER" "$EXPECTED_RUN_NUMBER"
+            check workflow "$WORKFLOW" "$EXPECTED_WORKFLOW"
+            check workflow_ref "$WORKFLOW_REF" "$EXPECTED_WORKFLOW_REF"
+            check job "$JOB" "$EXPECTED_JOB"
+            check run_url "$RUN_URL" "$expected_url"
+            check metadata_json.workflow_run.run_id \
+              "$(echo "$METADATA_JSON" | jq -r '.workflow_run.run_id')" \
+              "$EXPECTED_RUN_ID"
+            check metadata_json.workflow_run.run_url \
+              "$(echo "$METADATA_JSON" | jq -r '.workflow_run.run_url')" \
+              "$expected_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"
+
   # Test with a simulated tag push scenario
   test-tag-detection:
     name: 'Test tag detection logic'

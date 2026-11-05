@@ -139,6 +139,18 @@ class GerritMetadata(BaseModel):
     source: str = Field(default="")
 
 
+class WorkflowRunMetadata(BaseModel):
+    """Workflow run (where the metadata was produced) information model."""
+
+    run_id: int | None = None
+    run_attempt: int | None = None
+    run_number: int | None = None
+    workflow: str = ""
+    workflow_ref: str = ""
+    job: str = ""
+    run_url: str = ""
+
+
 class CompleteMetadata(BaseModel):
     """Complete metadata model combining all components."""
 
@@ -152,6 +164,7 @@ class CompleteMetadata(BaseModel):
     changed_files: ChangedFilesMetadata
     changed_files_last_commit: ChangedFilesMetadata
     gerrit_environment: GerritMetadata
+    workflow_run: WorkflowRunMetadata = Field(default_factory=WorkflowRunMetadata)
 
     def to_action_outputs(self, include_comment: bool = False) -> dict[str, str]:
         """
@@ -207,6 +220,16 @@ class CompleteMetadata(BaseModel):
         # Cache outputs
         outputs["cache_key"] = self.cache.key
         outputs["cache_restore_key"] = self.cache.restore_key
+
+        # Workflow run outputs
+        run = self.workflow_run
+        outputs["run_id"] = "" if run.run_id is None else str(run.run_id)
+        outputs["run_attempt"] = "" if run.run_attempt is None else str(run.run_attempt)
+        outputs["run_number"] = "" if run.run_number is None else str(run.run_number)
+        outputs["workflow"] = run.workflow
+        outputs["workflow_ref"] = run.workflow_ref
+        outputs["job"] = run.job
+        outputs["run_url"] = run.run_url
 
         # Changed files outputs (newline-delimited for multi-line output)
         outputs["changed_files"] = "\n".join(self.changed_files.files)

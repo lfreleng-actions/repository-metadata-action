@@ -206,6 +206,52 @@ class TestConfigOptionalVars:
             # Should fall back to the string value
             assert config.GITHUB_ACTOR_ID == "not-a-number"
 
+    def test_workflow_run_vars(self, full_env):
+        """Test workflow run variables are loaded and parsed."""
+        full_env.update(
+            {
+                "GITHUB_RUN_ID": "1234567890",
+                "GITHUB_RUN_ATTEMPT": "2",
+                "GITHUB_RUN_NUMBER": "42",
+                "GITHUB_WORKFLOW": "CI",
+                "GITHUB_WORKFLOW_REF": "owner/repo/.github/workflows/ci.yaml@refs/heads/main",
+                "GITHUB_JOB": "build",
+                "GITHUB_SERVER_URL": "https://ghe.example.com",
+            }
+        )
+
+        with patch.dict(os.environ, full_env, clear=True):
+            config = Config()
+            assert config.GITHUB_RUN_ID == 1234567890
+            assert config.GITHUB_RUN_ATTEMPT == 2
+            assert config.GITHUB_RUN_NUMBER == 42
+            assert config.GITHUB_WORKFLOW == "CI"
+            assert (
+                config.GITHUB_WORKFLOW_REF == "owner/repo/.github/workflows/ci.yaml@refs/heads/main"
+            )
+            assert config.GITHUB_JOB == "build"
+            assert config.GITHUB_SERVER_URL == "https://ghe.example.com"
+
+    def test_workflow_run_vars_missing(self, full_env):
+        """Test unset workflow run variables give None and the default server."""
+        with patch.dict(os.environ, full_env, clear=True):
+            config = Config()
+            assert config.GITHUB_RUN_ID is None
+            assert config.GITHUB_RUN_ATTEMPT is None
+            assert config.GITHUB_RUN_NUMBER is None
+            assert config.GITHUB_WORKFLOW is None
+            assert config.GITHUB_WORKFLOW_REF is None
+            assert config.GITHUB_JOB is None
+            assert config.GITHUB_SERVER_URL == "https://github.com"
+
+    def test_invalid_run_id(self, full_env):
+        """Test an invalid run ID falls back to the raw value."""
+        full_env["GITHUB_RUN_ID"] = "not-a-number"
+
+        with patch.dict(os.environ, full_env, clear=True):
+            config = Config()
+            assert config.GITHUB_RUN_ID == "not-a-number"
+
     def test_ref_type_validation(self, full_env):
         """Test GITHUB_REF_TYPE must be branch or tag."""
         full_env["GITHUB_REF_TYPE"] = "invalid"

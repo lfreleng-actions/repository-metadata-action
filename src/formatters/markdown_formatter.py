@@ -105,6 +105,19 @@ class MarkdownFormatter:
         }
         sections.extend(self._format_table("Cache", cache_data))
 
+        # Workflow run section
+        run = metadata.workflow_run
+        run_data = {
+            "run_id": "" if run.run_id is None else str(run.run_id),
+            "run_attempt": "" if run.run_attempt is None else str(run.run_attempt),
+            "run_number": "" if run.run_number is None else str(run.run_number),
+            "workflow": run.workflow,
+            "workflow_ref": run.workflow_ref,
+            "job": run.job,
+            "run_url": run.run_url,
+        }
+        sections.extend(self._format_table("Workflow Run", run_data, link_keys={"run_url"}))
+
         # Gerrit section (optional)
         if include_gerrit and metadata.gerrit_environment:
             sections.append(self.format_gerrit_section(metadata, include_comment=include_comment))
@@ -338,13 +351,16 @@ class MarkdownFormatter:
 
         return "\n".join(lines)
 
-    def _format_table(self, title: str, data: dict[str, str]) -> list[str]:
+    def _format_table(
+        self, title: str, data: dict[str, str], link_keys: set[str] | None = None
+    ) -> list[str]:
         """
         Format a markdown table with property/value pairs, filtering out empty values.
 
         Args:
             title: Section title (e.g., "Repository", "Actor")
             data: Dictionary of property names to values
+            link_keys: Property names whose values render as links, not code
 
         Returns:
             List of formatted lines for the table section
@@ -366,7 +382,10 @@ class MarkdownFormatter:
         for key, value in populated_data.items():
             # Escape markdown special characters in values
             safe_value = self._escape_markdown(str(value))
-            lines.append(f"| {key} | `{safe_value}` |")
+            if link_keys and key in link_keys:
+                lines.append(f"| {key} | [{safe_value}]({safe_value}) |")
+            else:
+                lines.append(f"| {key} | `{safe_value}` |")
 
         lines.append("")
         return lines

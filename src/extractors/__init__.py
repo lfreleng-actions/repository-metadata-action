@@ -17,6 +17,7 @@ from .gerrit import GerritExtractor
 from .pull_request import PullRequestExtractor
 from .ref import RefExtractor
 from .repository import RepositoryExtractor
+from .workflow_run import WorkflowRunExtractor
 
 __all__ = [
     "ActorExtractor",
@@ -30,4 +31,5 @@ __all__ = [
     "PullRequestExtractor",
     "RefExtractor",
     "RepositoryExtractor",
+    "WorkflowRunExtractor",
 ]

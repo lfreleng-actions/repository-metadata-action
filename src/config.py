@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from .constants import DEFAULT_GIT_FETCH_DEPTH
+from .constants import DEFAULT_GIT_FETCH_DEPTH, DEFAULT_GITHUB_SERVER_URL
 from .exceptions import ConfigurationError, ValidationError
 from .validators import InputValidator
 
@@ -30,6 +30,13 @@ class Config:
     GITHUB_BASE_REF: str | None
     GITHUB_HEAD_REF: str | None
     GITHUB_ACTOR_ID: int | str | None  # Can be str if validation fails
+    GITHUB_RUN_ID: int | str | None  # Can be str if validation fails
+    GITHUB_RUN_ATTEMPT: int | str | None  # Can be str if validation fails
+    GITHUB_RUN_NUMBER: int | str | None  # Can be str if validation fails
+    GITHUB_WORKFLOW: str | None
+    GITHUB_WORKFLOW_REF: str | None
+    GITHUB_JOB: str | None
+    GITHUB_SERVER_URL: str
     REPO_VISIBILITY: str | None
     DEFAULT_BRANCH: str | None
     GITHUB_TOKEN: str | None
@@ -175,6 +182,15 @@ class Config:
         else:
             self.GITHUB_ACTOR_ID = None
 
+        # Workflow run identifiers should be numeric
+        self.GITHUB_RUN_ID = self._load_optional_integer("GITHUB_RUN_ID")
+        self.GITHUB_RUN_ATTEMPT = self._load_optional_integer("GITHUB_RUN_ATTEMPT")
+        self.GITHUB_RUN_NUMBER = self._load_optional_integer("GITHUB_RUN_NUMBER")
+        self.GITHUB_WORKFLOW = os.environ.get("GITHUB_WORKFLOW")
+        self.GITHUB_WORKFLOW_REF = os.environ.get("GITHUB_WORKFLOW_REF")
+        self.GITHUB_JOB = os.environ.get("GITHUB_JOB")
+        self.GITHUB_SERVER_URL = os.environ.get("GITHUB_SERVER_URL") or DEFAULT_GITHUB_SERVER_URL
+
         # Runner variables - RUNNER_TEMP is expected to be absolute path
         runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
         # Just check for dangerous characters, don't validate as path component
@@ -193,6 +209,26 @@ class Config:
 
         # Default branch (from github.event.repository.default_branch)
         self.DEFAULT_BRANCH = os.environ.get("DEFAULT_BRANCH")
+
+    @staticmethod
+    def _load_optional_integer(name: str) -> int | str | None:
+        """
+        Load an optional positive integer environment variable.
+
+        Args:
+            name: Environment variable name
+
+        Returns:
+            The parsed integer, the raw value if it fails validation, or None if unset
+        """
+        value = os.environ.get(name)
+        if not value:
+            return None
+        try:
+            return InputValidator.validate_integer(value, name, min_val=1)
+        except ValidationError as e:
+            logging.warning(f"{name} validation failed: {e}, using raw value")
+            return value
 
     def _load_action_inputs(self) -> None:
         """Load action-specific inputs from environment."""

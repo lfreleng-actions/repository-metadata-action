@@ -198,6 +198,29 @@ outputs:
     description: 'Generated cache restore key prefix'
     value: ${{ steps.metadata.outputs.cache_restore_key }}
 
+  # Workflow run outputs
+  run_id:
+    description: 'Workflow run ID'
+    value: ${{ steps.metadata.outputs.run_id }}
+  run_attempt:
+    description: 'Workflow run attempt (1 for the first attempt)'
+    value: ${{ steps.metadata.outputs.run_attempt }}
+  run_number:
+    description: 'Workflow run number'
+    value: ${{ steps.metadata.outputs.run_number }}
+  workflow:
+    description: 'Workflow name'
+    value: ${{ steps.metadata.outputs.workflow }}
+  workflow_ref:
+    description: 'Workflow file reference (owner/repo/path@ref)'
+    value: ${{ steps.metadata.outputs.workflow_ref }}
+  job:
+    description: 'Job ID of the job that ran the action'
+    value: ${{ steps.metadata.outputs.job }}
+  run_url:
+    description: 'URL of the workflow run (names the attempt after a re-run)'
+    value: ${{ steps.metadata.outputs.run_url }}
+
   # Changed files outputs
   changed_files:
     description: 'List of changed files (newline-separated, push/PR events)'
