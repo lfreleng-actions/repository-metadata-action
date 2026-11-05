@@ -7,6 +7,7 @@ Tests for artifact generator module.
 
 import re
 import time
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -139,7 +140,7 @@ class TestArtifactGenerator:
 
         with patch("src.formatters.artifact_generator.datetime") as mock_datetime:
             # Mock datetime.now to return a fixed datetime
-            fixed_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            fixed_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = fixed_dt
             mock_datetime.timezone = timezone
 

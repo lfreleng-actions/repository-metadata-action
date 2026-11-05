@@ -10,7 +10,7 @@ name = "repository-metadata-action"
 dynamic = ["version"]
 description = "GitHub Action for extracting comprehensive repository metadata"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [
     {name = "The Linux Foundation", email = "info@linuxfoundation.org"}
@@ -22,11 +22,11 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Version Control :: Git",
 ]
@@ -84,7 +84,7 @@ include = [
 # Ruff configuration
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -162,6 +162,7 @@ ignore = [
     "PLC0415", # import outside top-level (needed for conditional imports)
     "RUF012", # mutable class attributes (intentional for constants)
     "T201",   # print statements (used in main.py for CLI output)
+    "UP042",  # str+Enum to StrEnum changes str()/format() of members
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -198,7 +199,7 @@ ignore = [
 # Locally (`uv run basedpyright`) the imports do resolve and the checks below
 # are correspondingly stronger.
 [tool.basedpyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
 include = ["src", "tests"]
@@ -211,7 +212,7 @@ reportUnusedImport = false
 reportUnusedVariable = false
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
