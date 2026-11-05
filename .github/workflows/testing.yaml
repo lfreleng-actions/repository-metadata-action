@@ -828,12 +828,23 @@ jobs:
           rm -f "$marker"
           echo '✅ Bait is live'
 
+      # An explicit base resolves the detector's verdict on every event
+      - name: 'Choose the dependency change base'
+        id: dc-base
+        shell: bash
+        run: |
+          # The commit before HEAD; fetch-depth 0 makes it present
+          set -euo pipefail
+          echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+
       - name: 'Run action (cold)'
         id: cold
         uses: $/
         with:
           github_token: ${{ github.token }}
           artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.dc-base.outputs.base }}
 
       - name: 'Run action (warm)'
         id: warm
@@ -841,16 +852,26 @@ jobs:
         with:
           github_token: ${{ github.token }}
           artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.dc-base.outputs.base }}
 
       - name: 'Verify no bait ran and outputs are valid'
         shell: bash
         env:
+          SIDECAR: '.repository-metadata-dependency-change.json'
+          WANT_BASE: ${{ steps.dc-base.outputs.base }}
           COLD_FULL_NAME: ${{ steps.cold.outputs.repository_full_name }}
           COLD_COMMIT_SHA: ${{ steps.cold.outputs.commit_sha }}
           COLD_METADATA_JSON: ${{ steps.cold.outputs.metadata_json }}
+          COLD_CHANGED: ${{ steps.cold.outputs.dependencies_changed }}
+          COLD_REASON: ${{ steps.cold.outputs.dependency_change_reason }}
+          COLD_BASE: ${{ steps.cold.outputs.dependency_change_base }}
           WARM_FULL_NAME: ${{ steps.warm.outputs.repository_full_name }}
           WARM_COMMIT_SHA: ${{ steps.warm.outputs.commit_sha }}
           WARM_METADATA_JSON: ${{ steps.warm.outputs.metadata_json }}
+          WARM_CHANGED: ${{ steps.warm.outputs.dependencies_changed }}
+          WARM_REASON: ${{ steps.warm.outputs.dependency_change_reason }}
+          WARM_BASE: ${{ steps.warm.outputs.dependency_change_base }}
         run: |
           # Both runs must produce real metadata and start no bait
           set -euo pipefail
@@ -882,6 +903,317 @@ jobs:
               echo "❌ ${run}: metadata_json is not valid metadata"
               status=1
             fi
+            # The detector ran under the trusted interpreter and resolved
+            changed_var="${run}_CHANGED"
+            reason_var="${run}_REASON"
+            base_var="${run}_BASE"
+            echo "${run}: changed='${!changed_var}' reason='${!reason_var}'"
+            case "${!changed_var}" in
+              true|false) ;;
+              *) echo "❌ ${run}: dependencies_changed is not resolved"
+                 status=1 ;;
+            esac
+            if [ "${!base_var}" != "$WANT_BASE" ]; then
+              echo "❌ ${run}: dependency_change_base='${!base_var}'"
+              status=1
+            fi
           done
+          if [ -e "$SIDECAR" ]; then
+            echo '❌ Sidecar left in the workspace'
+            status=1
+          fi
           [ "$status" -eq 0 ] && echo '✅ Outputs valid; no bait ran'
           exit "$status"
+
+  # Dependency change detection against this run's own event
+  test-dependency-change-event:
+    name: 'Test dependency change detection (event)'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    env:
+      SIDECAR: '.repository-metadata-dependency-change.json'
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # The detector needs the base commit
+          persist-credentials: false
+
+      - name: 'Run action with detection off'
+        id: dc-off
+        uses: $/
+        with:
+          artifact_upload: 'false'
+
+      - name: 'Check detection off'
+        shell: bash
+        env:
+          CHANGED: ${{ steps.dc-off.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-off.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-off.outputs.dependency_change_base }}
+        run: |
+          # Off by default: no outputs and no sidecar
+          set -euo pipefail
+          if [ -n "${CHANGED}${REASON}${BASE}" ]; then
+            echo "❌ Outputs set: '$CHANGED' '$REASON' '$BASE'"
+            exit 1
+          fi
+          if [ -e "$SIDECAR" ]; then
+            echo "❌ Sidecar left in the workspace"
+            exit 1
+          fi
+          echo '✅ Detection off leaves outputs empty'
+
+      - name: 'Run action with detection on'
+        id: dc-run
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+
+      - name: 'Check detection on this run'
+        shell: bash
+        env:
+          CHANGED: ${{ steps.dc-run.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-run.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-run.outputs.dependency_change_base }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          # The verdict depends on the event that started this run
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          if [ -e "$SIDECAR" ]; then
+            echo "❌ Sidecar left in the workspace"
+            exit 1
+          fi
+          if [ -z "$REASON" ]; then
+            echo '❌ dependency_change_reason is empty'
+            exit 1
+          fi
+          resolved=false
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) resolved=true ;;
+            push)
+              case "$EVENT_BEFORE" in
+                ''|*[!0]*) resolved=true ;;
+              esac ;;
+          esac
+          if [ "$resolved" = true ]; then
+            case "$CHANGED" in
+              true|false) ;;
+              *) echo "❌ Expected true or false, got '$CHANGED'"; exit 1 ;;
+            esac
+            if [ -z "$BASE" ]; then
+              echo '❌ dependency_change_base is empty'
+              exit 1
+            fi
+          else
+            if [ -n "${CHANGED}${BASE}" ]; then
+              echo "❌ Expected an unresolved result"
+              exit 1
+            fi
+            case "$REASON" in
+              unresolved*) ;;
+              *) echo "❌ Reason does not start with unresolved"; exit 1 ;;
+            esac
+          fi
+          echo '✅ Detection on this run behaves as expected'
+
+      - name: 'Plant a file at the sidecar path'
+        shell: bash
+        run: |
+          # The action must leave this file exactly as it finds it
+          set -euo pipefail
+          printf 'planted\n{"changed": false}\n' > "$SIDECAR"
+          cp -- "$SIDECAR" "${RUNNER_TEMP}/planted-sidecar"
+
+      - name: 'Run action with the sidecar path occupied'
+        id: dc-occupied
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+
+      - name: 'Check occupied sidecar path'
+        shell: bash
+        env:
+          CHANGED: ${{ steps.dc-occupied.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-occupied.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-occupied.outputs.dependency_change_base }}
+        run: |
+          # Unresolved, and the planted file survives byte for byte
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          if ! cmp -- "$SIDECAR" "${RUNNER_TEMP}/planted-sidecar"; then
+            echo '❌ The planted file changed or vanished'
+            exit 1
+          fi
+          if [ -n "${CHANGED}${BASE}" ]; then
+            echo '❌ Expected an unresolved result'
+            exit 1
+          fi
+          case "$REASON" in
+            unresolved*"$SIDECAR"*) ;;
+            *) echo '❌ Reason does not name the occupied path'; exit 1 ;;
+          esac
+          rm -f -- "$SIDECAR"
+          echo '✅ Occupied sidecar path left alone'
+
+      - name: 'Run action with an invalid dependency_change'
+        id: dc-invalid
+        continue-on-error: true
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'yes'
+
+      - name: 'Check invalid input fails'
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.dc-invalid.outcome }}
+        run: |
+          # An invalid opt-in fails the step loudly
+          set -euo pipefail
+          if [ "$OUTCOME" != 'failure' ]; then
+            echo "❌ Expected failure, got '$OUTCOME'"
+            exit 1
+          fi
+          if [ -e "$SIDECAR" ]; then
+            echo "❌ Sidecar left in the workspace"
+            exit 1
+          fi
+          echo '✅ Invalid dependency_change failed the step'
+
+  # Deterministic verdicts from scratch commits and explicit bases
+  test-dependency-change-verdicts:
+    name: 'Test dependency change detection (verdicts)'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    env:
+      SIDECAR: '.repository-metadata-dependency-change.json'
+      SCRATCH_DIR: 'dependency-change-scratch'
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Required for changed files detection
+          persist-credentials: false
+
+      # A new directory keeps the action's own pyproject.toml and
+      # uv.lock untouched: the action installs itself from them.
+      - name: 'Commit a package.json'
+        id: commit-package
+        shell: bash
+        run: |
+          # Add a node manifest in a new directory
+          set -euo pipefail
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$SCRATCH_DIR"
+          echo '{}' > "$SCRATCH_DIR/package.json"
+          git add -- "$SCRATCH_DIR/package.json"
+          git -c user.name='Test' -c user.email='test@example.invalid' \
+            commit -q --no-gpg-sign -m 'Test: Add package.json'
+
+      - name: 'Run action against the package.json commit'
+        id: dc-package
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.commit-package.outputs.base }}
+
+      - name: 'Check package.json verdict'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-package.outputs.base }}
+          CHANGED: ${{ steps.dc-package.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-package.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-package.outputs.dependency_change_base }}
+        run: |
+          # Every preset applies by default, so node matches
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          [ "$CHANGED" = true ] || { echo '❌ Expected true'; exit 1; }
+          [ "$BASE" = "$WANT_BASE" ] || { echo '❌ Wrong base'; exit 1; }
+          echo '✅ package.json counts as a dependency change'
+
+      - name: 'Run action with only the python preset'
+        id: dc-narrowed
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_ecosystems: 'python'
+          dependency_base: ${{ steps.commit-package.outputs.base }}
+
+      - name: 'Check narrowed verdict'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-package.outputs.base }}
+          CHANGED: ${{ steps.dc-narrowed.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-narrowed.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-narrowed.outputs.dependency_change_base }}
+        run: |
+          # The python preset does not match package.json
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          [ "$CHANGED" = false ] || { echo '❌ Expected false'; exit 1; }
+          [ "$BASE" = "$WANT_BASE" ] || { echo '❌ Wrong base'; exit 1; }
+          echo '✅ Narrowed presets ignore package.json'
+
+      - name: 'Commit a plain text file'
+        id: commit-text
+        shell: bash
+        run: |
+          # Add a file no preset matches
+          set -euo pipefail
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$SCRATCH_DIR"
+          echo 'notes' > "$SCRATCH_DIR/notes.txt"
+          git add -- "$SCRATCH_DIR/notes.txt"
+          git -c user.name='Test' -c user.email='test@example.invalid' \
+            commit -q --no-gpg-sign -m 'Test: Add notes'
+
+      - name: 'Run action against the text file commit'
+        id: dc-text
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.commit-text.outputs.base }}
+
+      - name: 'Check text file verdict'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-text.outputs.base }}
+          CHANGED: ${{ steps.dc-text.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-text.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-text.outputs.dependency_change_base }}
+        run: |
+          # A plain text file is not a dependency file
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          [ "$CHANGED" = false ] || { echo '❌ Expected false'; exit 1; }
+          [ "$BASE" = "$WANT_BASE" ] || { echo '❌ Wrong base'; exit 1; }
+          echo '✅ A plain text file is not a dependency change'

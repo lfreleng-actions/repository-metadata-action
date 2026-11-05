@@ -32,6 +32,8 @@ information.
 - 🔍 **Debug Mode**: Verbose logging for troubleshooting
 - 📋 **Gerrit Integration**: Automatic detection and processing of
   Gerrit change metadata
+- 📦 **Dependency Change Detection**: Opt-in verdict on whether the change
+  touched dependency files, for gating Grype scans
 
 ## Usage Example
 
@@ -74,6 +76,12 @@ steps:
 | artifact_formats       | Comma-separated list of formats to upload (json, yaml)                                                | No       | json,yaml           |
 | change_detection       | Changed files detection method: 'git' or 'github_api'                                                 | No       | (auto)              |
 | git_fetch_depth        | Depth for git fetch --deepen in shallow clones                                                        | No       | 15                  |
+| dependency_change      | Detect dependency file changes: 'true' or 'false' (see Dependency Change Detection)                   | No       | false               |
+| dependency_ecosystems  | Comma-separated dependency-change-action presets; empty means every preset                            | No       | (all presets)       |
+| dependency_patterns    | Extra dependency file patterns, one per line                                                          | No       | ''                  |
+| dependency_path_prefix | Project directory within the repository, for dependency change detection                              | No       | .                   |
+| gerrit_refspec         | Set when the checkout is a Gerrit change; the base is then the change's parent                        | No       | ''                  |
+| dependency_base        | Explicit base commit for dependency change detection                                                  | No       | ''                  |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -272,6 +280,21 @@ input method:
   "refspec": "refs/changes/45/12345/3",
 }
 ```
+
+### Dependency Change Outputs
+
+<!-- markdownlint-disable MD013 -->
+
+| Variable Name            | Description                                                   |
+| ------------------------ | ------------------------------------------------------------- |
+| dependencies_changed     | `true`, `false`, or empty when unresolved or detection is off |
+| dependency_change_reason | The detector's one-line reason; empty when detection is off   |
+| dependency_change_base   | The commit compared against; empty when unresolved or off     |
+
+<!-- markdownlint-enable MD013 -->
+
+These stay empty unless `dependency_change` is `'true'`; see
+[Dependency Change Detection](#dependency-change-detection).
 
 ### JSON and YAML Outputs
 
@@ -624,6 +647,100 @@ steps:
     with:
       debug: true
 ```
+
+## Dependency Change Detection
+
+Set `dependency_change: 'true'` and the action runs
+[`dependency-change-action`](https://github.com/lfreleng-actions/dependency-change-action)
+against the caller's checkout, before any step that could change it,
+and reports whether the change touched dependency files. That action's README
+describes how it chooses the base commit and how patterns match. With
+the default `'false'` nothing extra runs and the outputs below stay
+empty. Any other value fails the step.
+
+<!-- markdownlint-disable MD013 -->
+
+| Input                    | Default   | Meaning                                                                                |
+| ------------------------ | --------- | -------------------------------------------------------------------------------------- |
+| `dependency_change`      | `'false'` | `'true'` runs detection; any value other than `true` or `false` fails the step         |
+| `dependency_ecosystems`  | `''`      | Comma-separated presets; empty means every preset                                      |
+| `dependency_patterns`    | `''`      | Extra patterns, one per line, passed through as `patterns`                             |
+| `dependency_path_prefix` | `'.'`     | Passed through as `path-prefix`                                                        |
+| `gerrit_refspec`         | `''`      | Set when the caller's checkout is a Gerrit change; passed through as `gerrit-refspec`  |
+| `dependency_base`        | `''`      | Explicit base commit, passed through as `base`; for tests and special cases            |
+
+| Output                     | Value                                                         |
+| -------------------------- | ------------------------------------------------------------- |
+| `dependencies_changed`     | `true`, `false`, or empty when unresolved or detection is off |
+| `dependency_change_reason` | The detector's one-line reason; empty when detection is off   |
+| `dependency_change_base`   | The commit compared against; empty when unresolved or off     |
+
+<!-- markdownlint-enable MD013 -->
+
+An empty `dependency_ecosystems` selects every preset: `node`, `python`,
+`go`, `maven`, `gradle`, `rust` and `docker`. Matching too much costs one
+strict scan; matching too little lets a finding the change introduced
+pass as a warning.
+
+The checkout needs a depth of 2 or more so the base commit is present;
+`fetch-depth: 0` fetches full history. `gerrit_refspec` is an explicit
+input because the caller alone knows whether its checkout step checked
+out the Gerrit change.
+
+The detector writes a sidecar, `.repository-metadata-dependency-change.json`,
+in the working directory, and the action removes it once it has read
+the result. When a file already exists at that path, the action leaves
+it untouched, skips detection and reports an unresolved result with a
+warning. When detection is on, the step summary records
+`Dependency change: <reason>` whatever the summary inputs say.
+
+The detector runs `python3` from `PATH`, and a caller's earlier step
+can put a project's `.venv/bin` first on it. So the action sets up its
+own interpreter before detection, checks that `python3` resolves to
+it, and clears `PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__`, which
+can redirect Python on macOS even in isolated mode. When `python3`
+resolves anywhere else, the action skips detection and reports an
+unresolved result with a warning.
+
+`dependencies_changed` is empty unless the detector resolved the
+change. `grype-scan-action` gates on an empty value, so a
+skipped or failed metadata job keeps the full gate, provided the Grype
+job still runs. GitHub skips a job whose `needs` failed or skipped
+unless its `if:` says otherwise, so the Grype job needs a condition
+that tolerates the metadata job's result while still requiring the
+SBOM. A failed job can still expose outputs that its earlier steps
+wrote, so a verdict of `false` could outlive a later failure in the
+metadata job. Forward the verdict when that job succeeded, and pass
+an empty value otherwise. A workflow wires it through a job
+output:
+
+<!-- markdownlint-disable MD013 -->
+
+```yaml
+repository-metadata:
+  outputs:
+    dependencies_changed: ${{ steps.repo-metadata.outputs.dependencies_changed }}
+  steps:
+    # existing checkout steps (fetch-depth 0, or the Gerrit change)
+    - id: repo-metadata
+      uses: lfreleng-actions/repository-metadata-action@<sha>
+      with:
+        dependency_change: 'true'
+        gerrit_refspec: ${{ inputs.gerrit_refspec }}
+
+grype:
+  needs: [sbom, repository-metadata]
+  # Run even when repository-metadata failed or skipped; empty gates
+  if: ${{ !cancelled() && needs.sbom.result == 'success' }}
+  steps:
+    - uses: lfreleng-actions/grype-scan-action@<sha>
+      with:
+        gate-when: 'dependencies-changed'
+        # An empty value unless repository-metadata succeeded; it gates
+        dependencies-changed: ${{ needs.repository-metadata.result == 'success' && needs.repository-metadata.outputs.dependencies_changed || '' }}
+```
+
+<!-- markdownlint-enable MD013 -->
 
 ## Gerrit Integration
 
