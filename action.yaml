@@ -386,14 +386,14 @@ runs:
       id: dependency-change
       if: steps.dependency-change-setup.outputs.run == 'true'
       # yamllint disable-line rule:line-length
-      uses: lfreleng-actions/dependency-change-action@257928b15e4e6a5cc5a888435be59b058055c4e1  # v0.0.1
+      uses: lfreleng-actions/dependency-change-action@f647bde4268bb2831d30d3c36c2db55dcc274ae2  # v0.1.0
       env:
         # The detector runs "python3 -I", but these still redirect the
         # interpreter on macOS under -I; empty values are ignored.
         PYTHONEXECUTABLE: ''
         __PYVENV_LAUNCHER__: ''
       with:
-        # Empty selects every preset dependency-change-action v0.0.1
+        # Empty selects every preset dependency-change-action v0.1.0
         # defines; keep this list in step with the pinned version.
         # yamllint disable-line rule:line-length
         ecosystems: ${{ inputs.dependency_ecosystems || 'node,python,go,maven,gradle,rust,docker' }}

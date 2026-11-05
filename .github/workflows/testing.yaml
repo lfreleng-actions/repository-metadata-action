@@ -1271,3 +1271,121 @@ jobs:
           [ "$CHANGED" = false ] || { echo '❌ Expected false'; exit 1; }
           [ "$BASE" = "$WANT_BASE" ] || { echo '❌ Wrong base'; exit 1; }
           echo '✅ A plain text file is not a dependency change'
+
+      # dependency-change-action v0.1.0 added these to the maven and
+      # gradle presets; v0.0.1 reports false for both commits below.
+      - name: 'Commit a Maven jvm.config'
+        id: commit-maven
+        shell: bash
+        run: |
+          # Add .mvn/jvm.config at the root, where Maven reads it
+          set -euo pipefail
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p .mvn
+          echo '-Xmx1g' > .mvn/jvm.config
+          git add -- .mvn/jvm.config
+          git -c user.name='Test' -c user.email='test@example.invalid' \
+            commit -q --no-gpg-sign -m 'Test: Add jvm.config'
+
+      - name: 'Run action against the jvm.config commit'
+        id: dc-maven
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.commit-maven.outputs.base }}
+
+      - name: 'Run action against jvm.config with the maven preset'
+        id: dc-maven-only
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_ecosystems: 'maven'
+          dependency_base: ${{ steps.commit-maven.outputs.base }}
+
+      - name: 'Check jvm.config verdicts'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-maven.outputs.base }}
+          ALL_CHANGED: ${{ steps.dc-maven.outputs.dependencies_changed }}
+          ALL_REASON: ${{ steps.dc-maven.outputs.dependency_change_reason }}
+          ALL_BASE: ${{ steps.dc-maven.outputs.dependency_change_base }}
+          ONE_CHANGED: ${{ steps.dc-maven-only.outputs.dependencies_changed }}
+          # yamllint disable-line rule:line-length
+          ONE_REASON: ${{ steps.dc-maven-only.outputs.dependency_change_reason }}
+          ONE_BASE: ${{ steps.dc-maven-only.outputs.dependency_change_base }}
+        run: |
+          # The maven preset matches .mvn/jvm.config from v0.1.0
+          set -euo pipefail
+          for run in ALL ONE; do
+            changed_var="${run}_CHANGED"
+            reason_var="${run}_REASON"
+            base_var="${run}_BASE"
+            echo "${run}: changed='${!changed_var}'" \
+              "base='${!base_var}' reason='${!reason_var}'"
+            [ "${!changed_var}" = true ] \
+              || { echo "❌ ${run}: Expected true"; exit 1; }
+            [ "${!base_var}" = "$WANT_BASE" ] \
+              || { echo "❌ ${run}: Wrong base"; exit 1; }
+          done
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          echo '✅ .mvn/jvm.config counts as a dependency change'
+
+      - name: 'Commit an applied Gradle script'
+        id: commit-gradle
+        shell: bash
+        run: |
+          # Add a script a build file would pull in with "apply from"
+          set -euo pipefail
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p gradle
+          echo 'ext.versions = [:]' > gradle/deps.gradle
+          git add -- gradle/deps.gradle
+          git -c user.name='Test' -c user.email='test@example.invalid' \
+            commit -q --no-gpg-sign -m 'Test: Add deps.gradle'
+
+      - name: 'Run action against the Gradle script commit'
+        id: dc-gradle
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.commit-gradle.outputs.base }}
+
+      - name: 'Run action against the Gradle script with the gradle preset'
+        id: dc-gradle-only
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_ecosystems: 'gradle'
+          dependency_base: ${{ steps.commit-gradle.outputs.base }}
+
+      - name: 'Check Gradle script verdicts'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-gradle.outputs.base }}
+          ALL_CHANGED: ${{ steps.dc-gradle.outputs.dependencies_changed }}
+          ALL_REASON: ${{ steps.dc-gradle.outputs.dependency_change_reason }}
+          ALL_BASE: ${{ steps.dc-gradle.outputs.dependency_change_base }}
+          ONE_CHANGED: ${{ steps.dc-gradle-only.outputs.dependencies_changed }}
+          # yamllint disable-line rule:line-length
+          ONE_REASON: ${{ steps.dc-gradle-only.outputs.dependency_change_reason }}
+          ONE_BASE: ${{ steps.dc-gradle-only.outputs.dependency_change_base }}
+        run: |
+          # The gradle preset matches *.gradle scripts from v0.1.0
+          set -euo pipefail
+          for run in ALL ONE; do
+            changed_var="${run}_CHANGED"
+            reason_var="${run}_REASON"
+            base_var="${run}_BASE"
+            echo "${run}: changed='${!changed_var}'" \
+              "base='${!base_var}' reason='${!reason_var}'"
+            [ "${!changed_var}" = true ] \
+              || { echo "❌ ${run}: Expected true"; exit 1; }
+            [ "${!base_var}" = "$WANT_BASE" ] \
+              || { echo "❌ ${run}: Wrong base"; exit 1; }
+          done
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          echo '✅ An applied Gradle script counts as a dependency change'
