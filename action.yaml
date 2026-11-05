@@ -60,6 +60,38 @@ inputs:
       (may contain sensitive data; use with care)
     required: false
     default: 'false'
+  dependency_change:
+    description: >-
+      Detect whether the change touched dependency files: 'true' or 'false'
+    required: false
+    default: 'false'
+  dependency_ecosystems:
+    description: >-
+      Comma-separated dependency-change-action presets; empty means every
+      preset
+    required: false
+    default: ''
+  dependency_patterns:
+    description: >-
+      Extra dependency file patterns, one per line, added to the presets
+    required: false
+    default: ''
+  dependency_path_prefix:
+    description: 'Project directory within the repository'
+    required: false
+    default: '.'
+  gerrit_refspec:
+    description: >-
+      Set when the caller's checkout is a Gerrit change; the base is then
+      the change's parent
+    required: false
+    default: ''
+  dependency_base:
+    description: >-
+      Explicit base commit for dependency change detection, overriding
+      event detection
+    required: false
+    default: ''
 
 outputs:
   # Repository outputs
@@ -244,19 +276,143 @@ outputs:
     description: 'Gerrit metadata as JSON (from input or built from gerrit_to_platform inputs)'
     value: ${{ steps.metadata.outputs.gerrit_json }}
 
+  # Dependency change outputs
+  dependencies_changed:
+    description: >-
+      'true' or 'false' when detection resolved; empty when unresolved or
+      when dependency_change is off
+    value: ${{ steps.dependency-change-result.outputs.changed }}
+  dependency_change_reason:
+    description: >-
+      One line saying why; empty when dependency_change is off
+    value: ${{ steps.dependency-change-result.outputs.reason }}
+  dependency_change_base:
+    description: >-
+      The commit compared against; empty when unresolved or off
+    value: ${{ steps.dependency-change-result.outputs.base }}
+
 runs:
   using: 'composite'
   steps:
     # The one interpreter this action runs: setup-python's absolute
     # python-path output. Later steps never look Python up on PATH or
     # let uv choose one, since a caller's earlier step can set PATH,
-    # UV_PYTHON, VIRTUAL_ENV and similar variables for this job.
+    # UV_PYTHON, VIRTUAL_ENV and similar variables for this job. It
+    # runs first, leaving the checkout alone, so that the dependency
+    # detector, which runs "python3" from PATH, can use it too.
     - name: 'Setup Python'
       id: setup-python
       # yamllint disable-line rule:line-length
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: '3.11'
+
+    # Dependency change detection runs before any step that could
+    # change the checkout, so it sees it exactly as the caller left it.
+    - name: 'Check dependency change inputs'
+      id: dependency-change-setup
+      shell: bash
+      env:
+        DEPENDENCY_CHANGE: ${{ inputs.dependency_change }}
+        # The detector deletes whatever sits at its output path; use a
+        # name of our own and never run it over an existing file.
+        SIDECAR: '.repository-metadata-dependency-change.json'
+        INTERPRETER: "${{ steps.setup-python.outputs.python-path }}"
+      run: |
+        # Validate the opt-in and check the sidecar path is free
+        set -euo pipefail
+        case "$DEPENDENCY_CHANGE" in
+          true) ;;
+          false) echo 'enabled=false' >> "$GITHUB_OUTPUT"; exit 0 ;;
+          *) echo "::error::dependency_change must be 'true' or 'false' ❌"
+             exit 1 ;;
+        esac
+        {
+          echo 'enabled=true'
+          echo "sidecar=$SIDECAR"
+        } >> "$GITHUB_OUTPUT"
+        # setup-python prepends its bin directory to PATH last, so the
+        # runner puts it ahead of any directory a caller added. Verify
+        # rather than assume: this step sees the detector's PATH.
+        trusted=''
+        case "$INTERPRETER" in
+          /*) trusted="${INTERPRETER%/*}/python3" ;;
+        esac
+        found="$(command -v python3 || true)"
+        found="${found//[$'\r\n']/}"
+        reason=''
+        if [ -e "$SIDECAR" ] || [ -L "$SIDECAR" ]; then
+          reason="unresolved: ${SIDECAR} already exists; detection skipped"
+          echo "::warning::${reason}"
+        elif [ -z "$trusted" ] || [ ! -x "$trusted" ] \
+          || [ "$found" != "$trusted" ]; then
+          reason='unresolved: python3 is not the trusted interpreter;'
+          reason="$reason detection skipped"
+          echo "::warning::${reason} (python3 resolves to '${found}')"
+        fi
+        if [ -n "$reason" ]; then
+          {
+            echo 'run=false'
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+        else
+          echo 'run=true' >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: 'Detect dependency changes'
+      id: dependency-change
+      if: steps.dependency-change-setup.outputs.run == 'true'
+      # yamllint disable-line rule:line-length
+      uses: lfreleng-actions/dependency-change-action@257928b15e4e6a5cc5a888435be59b058055c4e1  # v0.0.1
+      env:
+        # The detector runs "python3 -I", but these still redirect the
+        # interpreter on macOS under -I; empty values are ignored.
+        PYTHONEXECUTABLE: ''
+        __PYVENV_LAUNCHER__: ''
+      with:
+        # Empty selects every preset dependency-change-action v0.0.1
+        # defines; keep this list in step with the pinned version.
+        # yamllint disable-line rule:line-length
+        ecosystems: ${{ inputs.dependency_ecosystems || 'node,python,go,maven,gradle,rust,docker' }}
+        patterns: ${{ inputs.dependency_patterns }}
+        path-prefix: ${{ inputs.dependency_path_prefix }}
+        gerrit-refspec: ${{ inputs.gerrit_refspec }}
+        base: ${{ inputs.dependency_base }}
+        output: ${{ steps.dependency-change-setup.outputs.sidecar }}
+
+    - name: 'Report dependency change'
+      id: dependency-change-result
+      if: steps.dependency-change-setup.outputs.enabled == 'true'
+      shell: bash
+      env:
+        DETECTOR_OUTCOME: ${{ steps.dependency-change.outcome }}
+        SIDECAR: ${{ steps.dependency-change-setup.outputs.sidecar }}
+        SKIP_REASON: ${{ steps.dependency-change-setup.outputs.reason }}
+        CHANGED: ${{ steps.dependency-change.outputs.changed }}
+        REASON: ${{ steps.dependency-change.outputs.reason }}
+        BASE: ${{ steps.dependency-change.outputs.base }}
+      run: |
+        # Publish the verdict and remove the sidecar the detector wrote
+        set -euo pipefail
+        if [ "$DETECTOR_OUTCOME" = 'success' ]; then
+          # The path was free before detection, so this is the detector's
+          rm -f -- "$SIDECAR"
+        else
+          REASON="$SKIP_REASON"
+        fi
+        # Fail closed: anything but a resolved verdict leaves both empty
+        case "$CHANGED" in
+          true|false) ;;
+          *) CHANGED=''; BASE='' ;;
+        esac
+        REASON="${REASON//[$'\r\n']/ }"
+        BASE="${BASE//[$'\r\n']/}"
+        {
+          echo "changed=$CHANGED"
+          echo "reason=$REASON"
+          echo "base=$BASE"
+        } >> "$GITHUB_OUTPUT"
+        echo "Dependency change: $REASON" | tee -a "$GITHUB_STEP_SUMMARY"
 
     # setup-uv's only uv call for these inputs is "uv python find",
     # whose result it executes. An invalid preference makes uv refuse
