@@ -7,7 +7,7 @@ Creates JSON and YAML artifact files for upload.
 """
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -46,7 +46,7 @@ class ArtifactGenerator:
         Returns:
             Unique suffix string (datetime-random format)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         datetime_str = now.strftime("%Y%m%d-%H%M%S")
 
         # Generate secure random data for uniqueness
