@@ -218,10 +218,11 @@ def test_protected_git_behind_another_git_is_refused(
 ) -> None:
     """A workspace git later on PATH is refused, whatever comes first.
 
-    Python's subprocess, which the detector uses, moves on to the next
-    PATH entry when a git fails to start, such as one whose shebang
-    names a missing interpreter, so checking the first git alone would
-    let the planted one run.
+    The detector runs only the git the guard passes it, but the guard
+    still checks every candidate as defence in depth: Python's
+    subprocess, as the control shows, moves on to the next PATH entry
+    when a git fails to start, such as one whose shebang names a
+    missing interpreter.
     """
     marker = tmp_path / "planted-git-ran"
     first_dir = tmp_path / "elsewhere"
@@ -283,7 +284,6 @@ def test_no_git_on_path_is_refused(tmp_path: Path, trusted_dir: Path) -> None:
     assert outputs.get("reason", "").startswith("unresolved: no executable git"), outputs
 
 
-@pytest.mark.xfail(strict=True, reason="the guard does not yet output git")
 def test_first_git_is_passed_to_the_detector(tmp_path: Path, trusted_dir: Path) -> None:
     """The git output is the first git on PATH, spelled as PATH finds it.
 
@@ -301,7 +301,6 @@ def test_first_git_is_passed_to_the_detector(tmp_path: Path, trusted_dir: Path) 
     assert outputs.get("git") == str(first_dir / "git"), outputs
 
 
-@pytest.mark.xfail(strict=True, reason="the guard does not yet output git")
 def test_broken_first_git_is_passed_without_fallback(tmp_path: Path, trusted_dir: Path) -> None:
     """A first git that cannot start is still the one passed on.
 
@@ -322,7 +321,6 @@ def test_broken_first_git_is_passed_without_fallback(tmp_path: Path, trusted_dir
     assert outputs.get("git") == str(first_dir / "git"), outputs
 
 
-@pytest.mark.xfail(strict=True, reason="the guard does not yet refuse such a git")
 def test_git_path_that_is_not_utf8_is_refused(tmp_path: Path, trusted_dir: Path) -> None:
     """A first git whose path is not UTF-8 is refused, not altered.
 

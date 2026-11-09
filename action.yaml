@@ -345,19 +345,23 @@ runs:
         # redirect it on macOS under -I; empty values are ignored.
         PYTHONEXECUTABLE: ''
         __PYVENV_LAUNCHER__: ''
-        # The detector v0.1.0 runs ["git", ...] through Python's
-        # subprocess, which tries the git in each PATH entry in turn
-        # when one fails to start, such as a script whose interpreter
-        # is missing. So check every candidate subprocess would try,
-        # not just the first. A relative entry resolves against the
-        # detector's directory, which this check cannot see, so refuse
-        # it outright. Exits 0 when some git can run and none lies
-        # inside a directory passed as an argument; otherwise prints
-        # the refused path and exits 3 for a line break, 4 for a
-        # protected directory, 5 for no git, 6 for a relative entry.
-        # Containment is decided by filesystem identity, not path
-        # text: a case-insensitive volume, or any other alias, can spell
-        # a protected directory differently from GITHUB_WORKSPACE.
+        # The detector runs the one git passed as its "git" input and
+        # never searches PATH. Pick the git a PATH lookup finds first,
+        # the first runnable candidate, and pass that. Check every
+        # candidate, not just the first, as defence in depth. A
+        # relative entry resolves against the detector's directory,
+        # which this check cannot see, so refuse it outright. The
+        # chosen path reaches the detector through GITHUB_OUTPUT, which
+        # the runner reads as UTF-8, so refuse a path that is not UTF-8
+        # rather than pass an altered one.
+        # Exits 0 and prints the chosen git when some git can run and
+        # none lies inside a directory passed as an argument; otherwise
+        # prints the refused path and exits 3 for a line break, 4 for a
+        # protected directory, 5 for no git, 6 for a relative entry, 7
+        # for a path GITHUB_OUTPUT cannot carry exactly. Containment is
+        # decided by filesystem identity, not path text: a
+        # case-insensitive volume, or any other alias, can spell a
+        # protected directory differently from GITHUB_WORKSPACE.
         GIT_GUARD: |
           import os, stat, sys
 
@@ -392,20 +396,26 @@ runs:
                   for path in sys.argv[1:]
                   if path
               }
-              found = False
+              first = None
               for entry in os.get_exec_path():
                   if not os.path.isabs(entry):
                       refuse(6, entry)
                   candidate = os.path.join(entry, "git")
                   if not runnable(candidate):
                       continue
-                  found = True
+                  if first is None:
+                      first = candidate
                   if "\r" in candidate or "\n" in candidate:
                       refuse(3, candidate)
                   if inside(candidate, protected):
                       refuse(4, candidate)
-              if not found:
+              if first is None:
                   sys.exit(5)
+              try:
+                  os.fsencode(first).decode("utf-8")
+              except UnicodeDecodeError:
+                  refuse(7, first)
+              sys.stdout.buffer.write(os.fsencode(first))
           except OSError:
               sys.exit(1)
       run: |
@@ -441,28 +451,37 @@ runs:
           local text="${1//$'\r'/\\r}"
           printf '%s' "${text//$'\n'/\\n}"
         }
-        # The detector runs "git" from this PATH too. A caller's step
-        # can put a checkout directory such as .venv/bin on it, where
+        # The detector runs the git this check approves. A caller's step
+        # can put a checkout directory such as .venv/bin on PATH, where
         # the change under review could supply a git. Check every git
         # candidate with the trusted interpreter, not a tool from PATH.
-        # Prints why git is refused, or nothing when every one passes.
-        git_refusal() {
+        # Sets git_path to the approved git, or sets git_problem to why
+        # git is refused and returns 1.
+        check_git() {
           local candidate status=0
           candidate="$("$INTERPRETER" -I -c "$GIT_GUARD" \
             "$GITHUB_WORKSPACE" "$RUNNER_TEMP")" || status=$?
+          if [ "$status" -eq 0 ] && [ -n "$candidate" ]; then
+            git_path="$candidate"
+            return 0
+          fi
           candidate="$(shown "$candidate")"
           case "$status" in
-            0) ;;
-            3) printf "the git candidate '%s' holds a line break" \
-                 "$candidate" ;;
-            4) printf "git candidate '%s' %s" "$candidate" \
+            3) printf -v git_problem \
+                 "the git candidate '%s' holds a line break" "$candidate" ;;
+            4) printf -v git_problem "git candidate '%s' %s" "$candidate" \
                  'lies inside the workspace or RUNNER_TEMP' ;;
-            5) printf 'no executable git on PATH' ;;
-            6) printf "PATH entry '%s' is relative, so git could %s" \
+            5) git_problem='no executable git on PATH' ;;
+            6) printf -v git_problem \
+                 "PATH entry '%s' is relative, so git could %s" \
                  "$candidate" 'resolve anywhere' ;;
-            *) printf 'the git check failed' ;;
+            7) printf -v git_problem "git path '%s' %s" "$candidate" \
+                 'cannot pass to the detector unchanged' ;;
+            *) git_problem='the git check failed' ;;
           esac
+          return 1
         }
+        git_path=''
         git_problem=''
         reason=''
         if [ -e "$SIDECAR" ] || [ -L "$SIDECAR" ]; then
@@ -477,7 +496,7 @@ runs:
           reason='unresolved: python3 is not the trusted interpreter;'
           reason="$reason detection skipped"
           echo "::warning::${reason} (python3 resolves to '${found}')"
-        elif git_problem="$(git_refusal)"; [ -n "$git_problem" ]; then
+        elif ! check_git; then
           reason="unresolved: ${git_problem}; detection skipped"
           echo "::warning::${reason}"
         fi
@@ -487,28 +506,27 @@ runs:
             echo "reason=$reason"
           } >> "$GITHUB_OUTPUT"
         else
-          echo 'run=true' >> "$GITHUB_OUTPUT"
+          {
+            echo 'run=true'
+            printf 'git=%s\n' "$git_path"
+          } >> "$GITHUB_OUTPUT"
         fi
 
     - name: 'Detect dependency changes'
       id: dependency-change
       if: steps.dependency-change-setup.outputs.run == 'true'
       # yamllint disable-line rule:line-length
-      uses: lfreleng-actions/dependency-change-action@f647bde4268bb2831d30d3c36c2db55dcc274ae2  # v0.1.0
+      uses: lfreleng-actions/dependency-change-action@4f567fb056807220fb98264bcce0ad0cce77e3a2  # v0.2.0
       env:
         # The detector runs "python3 -I", but these still redirect the
         # interpreter on macOS under -I; empty values are ignored.
         PYTHONEXECUTABLE: ''
         __PYVENV_LAUNCHER__: ''
-        # v0.1.0 passes this environment to git. Replace refs can make
-        # a commit diff as empty and a grafts file can move HEAD^1;
-        # GIT_NO_REPLACE_OBJECTS alone does not stop grafts. Redundant
-        # once the pin includes dependency-change-action#23, harmless
-        # until then.
-        GIT_NO_REPLACE_OBJECTS: '1'
-        GIT_GRAFT_FILE: '/dev/null'
       with:
-        # Empty selects every preset dependency-change-action v0.1.0
+        # The git the setup step approved; the detector never searches
+        # PATH for one, and runs it without the caller's GIT_* variables
+        git: ${{ steps.dependency-change-setup.outputs.git }}
+        # Empty selects every preset dependency-change-action v0.2.0
         # defines; keep this list in step with the pinned version.
         # yamllint disable-line rule:line-length
         ecosystems: ${{ inputs.dependency_ecosystems || 'node,python,go,maven,gradle,rust,docker' }}
