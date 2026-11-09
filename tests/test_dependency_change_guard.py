@@ -76,11 +76,13 @@ def run_guard(tmp_path: Path, path_entries: list[Path | str], interpreter: Path)
         env=env,
         capture_output=True,
         text=True,
+        errors="surrogateescape",
         check=False,
     )
     assert result.returncode == 0, result.stderr
     outputs: dict[str, str] = {}
-    for line in output.read_text(encoding="utf-8").splitlines():
+    text = output.read_text(encoding="utf-8", errors="surrogateescape")
+    for line in text.splitlines():
         key, sep, value = line.partition("=")
         assert sep, f"Malformed GITHUB_OUTPUT line: {line!r}"
         assert key not in outputs, f"Duplicate output {key!r}"
@@ -152,6 +154,7 @@ def test_python3_lookup_with_line_break_is_refused(tmp_path: Path, trusted_dir: 
 def assert_git_refused(outputs: dict[str, str], marker: Path, planted: Path | None = None) -> None:
     """Assert the guard refused a git candidate and never ran it."""
     assert outputs.get("run") == "false", outputs
+    assert "git" not in outputs, outputs
     reason = outputs.get("reason", "")
     assert reason.startswith("unresolved: git candidate"), reason
     assert "inside the workspace or RUNNER_TEMP" in reason, reason
@@ -278,3 +281,66 @@ def test_no_git_on_path_is_refused(tmp_path: Path, trusted_dir: Path) -> None:
 
     assert outputs.get("run") == "false", outputs
     assert outputs.get("reason", "").startswith("unresolved: no executable git"), outputs
+
+
+@pytest.mark.xfail(strict=True, reason="the guard does not yet output git")
+def test_first_git_is_passed_to_the_detector(tmp_path: Path, trusted_dir: Path) -> None:
+    """The git output is the first git on PATH, spelled as PATH finds it.
+
+    The detector resolves symbolic links itself, so a link stays a link.
+    """
+    first_dir = tmp_path / "first"
+    first_dir.mkdir()
+    (first_dir / "git").symlink_to(str(GIT))
+    second_dir = tmp_path / "second"
+    executable(second_dir / "git", "exit 0")
+
+    outputs = run_guard(tmp_path, [trusted_dir, first_dir, second_dir], trusted_dir / "python3")
+
+    assert outputs.get("run") == "true", outputs
+    assert outputs.get("git") == str(first_dir / "git"), outputs
+
+
+@pytest.mark.xfail(strict=True, reason="the guard does not yet output git")
+def test_broken_first_git_is_passed_without_fallback(tmp_path: Path, trusted_dir: Path) -> None:
+    """A first git that cannot start is still the one passed on.
+
+    The detector runs only that git, so its failure to start leaves the
+    result unresolved; it never falls back to the working git after it.
+    """
+    first_dir = tmp_path / "first"
+    first_dir.mkdir()
+    (first_dir / "git").write_text("#!/nonexistent/interpreter\n", encoding="utf-8")
+    (first_dir / "git").chmod(0o755)
+    second_dir = tmp_path / "second"
+    second_dir.mkdir()
+    (second_dir / "git").symlink_to(str(GIT))
+
+    outputs = run_guard(tmp_path, [trusted_dir, first_dir, second_dir], trusted_dir / "python3")
+
+    assert outputs.get("run") == "true", outputs
+    assert outputs.get("git") == str(first_dir / "git"), outputs
+
+
+@pytest.mark.xfail(strict=True, reason="the guard does not yet refuse such a git")
+def test_git_path_that_is_not_utf8_is_refused(tmp_path: Path, trusted_dir: Path) -> None:
+    """A first git whose path is not UTF-8 is refused, not altered.
+
+    The runner reads GITHUB_OUTPUT as UTF-8, so such a path would reach
+    the detector as different bytes.
+    """
+    planted_dir = Path(os.fsdecode(os.fsencode(tmp_path) + b"/bad\xff"))
+    try:
+        planted_dir.mkdir()
+    except OSError:
+        pytest.skip("needs a filesystem that accepts names that are not UTF-8")
+    (planted_dir / "git").symlink_to(str(GIT))
+    git_dir = Path(str(GIT)).parent
+
+    outputs = run_guard(tmp_path, [trusted_dir, planted_dir, git_dir], trusted_dir / "python3")
+
+    assert outputs.get("run") == "false", outputs
+    assert "git" not in outputs, outputs
+    reason = outputs.get("reason", "")
+    assert reason.startswith("unresolved: git path"), reason
+    assert "cannot pass to the detector unchanged" in reason, reason
