@@ -341,6 +341,73 @@ runs:
         # name of our own and never run it over an existing file.
         SIDECAR: '.repository-metadata-dependency-change.json'
         INTERPRETER: "${{ steps.setup-python.outputs.python-path }}"
+        # The guard runs the interpreter with -I, but these still
+        # redirect it on macOS under -I; empty values are ignored.
+        PYTHONEXECUTABLE: ''
+        __PYVENV_LAUNCHER__: ''
+        # The detector v0.1.0 runs ["git", ...] through Python's
+        # subprocess, which tries the git in each PATH entry in turn
+        # when one fails to start, such as a script whose interpreter
+        # is missing. So check every candidate subprocess would try,
+        # not just the first. A relative entry resolves against the
+        # detector's directory, which this check cannot see, so refuse
+        # it outright. Exits 0 when some git can run and none lies
+        # inside a directory passed as an argument; otherwise prints
+        # the refused path and exits 3 for a line break, 4 for a
+        # protected directory, 5 for no git, 6 for a relative entry.
+        # Containment is decided by filesystem identity, not path
+        # text: a case-insensitive volume, or any other alias, can spell
+        # a protected directory differently from GITHUB_WORKSPACE.
+        GIT_GUARD: |
+          import os, stat, sys
+
+          def identity(path):
+              info = os.stat(path)
+              return info.st_dev, info.st_ino
+
+          def runnable(path):
+              try:
+                  info = os.stat(path)
+              except OSError:
+                  return False
+              return stat.S_ISREG(info.st_mode) and os.access(path, os.X_OK)
+
+          def inside(path, protected):
+              path = os.path.realpath(path)
+              while True:
+                  if identity(path) in protected:
+                      return True
+                  parent = os.path.dirname(path)
+                  if parent == path:
+                      return False
+                  path = parent
+
+          def refuse(code, path):
+              sys.stdout.buffer.write(os.fsencode(path))
+              sys.exit(code)
+
+          try:
+              protected = {
+                  identity(os.path.realpath(path))
+                  for path in sys.argv[1:]
+                  if path
+              }
+              found = False
+              for entry in os.get_exec_path():
+                  if not os.path.isabs(entry):
+                      refuse(6, entry)
+                  candidate = os.path.join(entry, "git")
+                  if not runnable(candidate):
+                      continue
+                  found = True
+                  if "\r" in candidate or "\n" in candidate:
+                      refuse(3, candidate)
+                  if inside(candidate, protected):
+                      refuse(4, candidate)
+              if not found:
+                  sys.exit(5)
+          except OSError:
+              sys.exit(1)
       run: |
         # Validate the opt-in and check the sidecar path is free
         set -euo pipefail
@@ -361,17 +428,58 @@ runs:
         case "$INTERPRETER" in
           /*) trusted="${INTERPRETER%/*}/python3" ;;
         esac
+        # Check each lookup exactly as the detector's lookup returns
+        # it. A PATH entry can hold a line break; stripping it would
+        # validate a different file from the one the detector runs, so
+        # refuse such a lookup and escape it only for display.
         found="$(command -v python3 || true)"
-        found="${found//[$'\r\n']/}"
+        has_line_break() {
+          case "$1" in *$'\r'*|*$'\n'*) return 0 ;; esac
+          return 1
+        }
+        shown() {
+          local text="${1//$'\r'/\\r}"
+          printf '%s' "${text//$'\n'/\\n}"
+        }
+        # The detector runs "git" from this PATH too. A caller's step
+        # can put a checkout directory such as .venv/bin on it, where
+        # the change under review could supply a git. Check every git
+        # candidate with the trusted interpreter, not a tool from PATH.
+        # Prints why git is refused, or nothing when every one passes.
+        git_refusal() {
+          local candidate status=0
+          candidate="$("$INTERPRETER" -I -c "$GIT_GUARD" \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP")" || status=$?
+          candidate="$(shown "$candidate")"
+          case "$status" in
+            0) ;;
+            3) printf "the git candidate '%s' holds a line break" \
+                 "$candidate" ;;
+            4) printf "git candidate '%s' %s" "$candidate" \
+                 'lies inside the workspace or RUNNER_TEMP' ;;
+            5) printf 'no executable git on PATH' ;;
+            6) printf "PATH entry '%s' is relative, so git could %s" \
+                 "$candidate" 'resolve anywhere' ;;
+            *) printf 'the git check failed' ;;
+          esac
+        }
+        git_problem=''
         reason=''
         if [ -e "$SIDECAR" ] || [ -L "$SIDECAR" ]; then
           reason="unresolved: ${SIDECAR} already exists; detection skipped"
           echo "::warning::${reason}"
+        elif has_line_break "$found"; then
+          reason='unresolved: the python3 lookup holds a line break;'
+          reason="$reason detection skipped"
+          echo "::warning::${reason} (python3 resolves to '$(shown "$found")')"
         elif [ -z "$trusted" ] || [ ! -x "$trusted" ] \
           || [ "$found" != "$trusted" ]; then
           reason='unresolved: python3 is not the trusted interpreter;'
           reason="$reason detection skipped"
           echo "::warning::${reason} (python3 resolves to '${found}')"
+        elif git_problem="$(git_refusal)"; [ -n "$git_problem" ]; then
+          reason="unresolved: ${git_problem}; detection skipped"
+          echo "::warning::${reason}"
         fi
         if [ -n "$reason" ]; then
           {
@@ -392,6 +500,13 @@ runs:
         # interpreter on macOS under -I; empty values are ignored.
         PYTHONEXECUTABLE: ''
         __PYVENV_LAUNCHER__: ''
+        # v0.1.0 passes this environment to git. Replace refs can make
+        # a commit diff as empty and a grafts file can move HEAD^1;
+        # GIT_NO_REPLACE_OBJECTS alone does not stop grafts. Redundant
+        # once the pin includes dependency-change-action#23, harmless
+        # until then.
+        GIT_NO_REPLACE_OBJECTS: '1'
+        GIT_GRAFT_FILE: '/dev/null'
       with:
         # Empty selects every preset dependency-change-action v0.1.0
         # defines; keep this list in step with the pinned version.

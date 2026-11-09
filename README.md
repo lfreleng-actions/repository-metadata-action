@@ -733,13 +733,38 @@ it untouched, skips detection and reports an unresolved result with a
 warning. When detection is on, the step summary records
 `Dependency change: <reason>` whatever the summary inputs say.
 
-The detector runs `python3` from `PATH`, and a caller's earlier step
-can put a project's `.venv/bin` first on it. So the action sets up its
-own interpreter before detection, checks that `python3` resolves to
-it, and clears `PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__`, which
-can redirect Python on macOS even in isolated mode. When `python3`
-resolves anywhere else, the action skips detection and reports an
-unresolved result with a warning.
+The detector runs `python3` and `git` from `PATH`, and a caller's
+earlier step can put a checkout directory such as `.venv/bin` or `bin/`
+first on it, where the change under review could supply either. So the
+action sets up its own interpreter before detection, checks that
+`python3` resolves to it, and clears `PYTHONEXECUTABLE` and
+`__PYVENV_LAUNCHER__` for both that check and the detector, since they
+can redirect Python on macOS even in isolated mode. The detector's
+Python moves on to the next `PATH` entry when a `git` fails to start,
+so the action checks every executable `git` on `PATH`, in order,
+rather than the first alone: it resolves each through any symbolic
+links and requires it to lie outside both `GITHUB_WORKSPACE` and
+`RUNNER_TEMP`. A `PATH` entry in either directory that holds no `git`
+is fine. A relative `PATH` entry, empty ones included, fails the check
+outright, since it resolves against the detector's working directory.
+The action compares filesystem identities, not path text, so a
+differently cased spelling of the workspace on a case-insensitive
+volume still counts as inside it. A `python3` lookup or `git`
+candidate whose path holds a line break fails its check outright, so
+the action never validates a cleaned path that differs from the one
+the detector runs. When either check fails, the action skips detection
+and reports an unresolved result, which gates, with a warning naming
+the path.
+
+The detector runs git with `GIT_NO_REPLACE_OBJECTS=1` and
+`GIT_GRAFT_FILE=/dev/null`, so replace refs and a grafts file in the
+clone cannot hide a commit's changes or move the base.
+
+These checks cover what the checkout and `PATH` contain when the action
+starts, not what an earlier step did elsewhere on the runner. Run this
+action before any step in the job that executes untrusted code, such
+as the change's build or tests: such a step could replace `git` outside
+the workspace or rewrite the clone.
 
 `dependencies_changed` is empty unless the detector resolved the
 change. `grype-scan-action` gates on an empty value, so a

@@ -979,6 +979,161 @@ jobs:
           [ "$status" -eq 0 ] && echo '✅ Outputs valid; no bait ran'
           exit "$status"
 
+  # The detector runs "git" from PATH. Plant a git in the workspace, put
+  # it first on PATH as a caller's earlier step could, and check that
+  # the action skips detection rather than run it. The swapped leg
+  # reaches the workspace through a differently cased spelling, which
+  # names the same directory on macOS's case-insensitive volume. The
+  # fallback leg puts a git that cannot start, outside the workspace,
+  # ahead of the planted one: Python's subprocess, which the detector
+  # uses, then moves on to the planted git.
+  test-untrusted-git:
+    name: 'Test untrusted git skips detection'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        variant: [exact, fallback]
+        include:
+          - os: macos-15
+            variant: swapped
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # The explicit base must be present
+          persist-credentials: false
+
+      - name: 'Plant an untrusted git'
+        id: plant
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          # The planted git records that it ran and prints nothing
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/planted-git-ran"
+          rm -f "$marker"
+          real_git="$(command -v git)"
+          echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          mkdir -p planted-git
+          printf '#!/bin/sh\necho "git $*" >> "%s"\nexit 0\n' "$marker" \
+            > planted-git/git
+          chmod +x planted-git/git
+          workspace="$GITHUB_WORKSPACE"
+          if [ "$VARIANT" = swapped ]; then
+            workspace="$(printf '%s' "$GITHUB_WORKSPACE" \
+              | tr '[:lower:]' '[:upper:]')"
+            # Control: another spelling of the same directory
+            if [ "$workspace" = "$GITHUB_WORKSPACE" ] \
+              || [ ! "$workspace" -ef "$GITHUB_WORKSPACE" ]; then
+              echo "❌ '$workspace' is not another spelling of the workspace"
+              exit 1
+            fi
+          fi
+          echo "dir=${workspace}/planted-git" >> "$GITHUB_OUTPUT"
+          echo "${workspace}/planted-git" >> "$GITHUB_PATH"
+          if [ "$VARIANT" = fallback ]; then
+            # Added last, so first on PATH: its interpreter is missing
+            broken="${HOME}/broken-git"
+            mkdir -p "$broken"
+            printf '#!/nonexistent/interpreter\n' > "${broken}/git"
+            chmod +x "${broken}/git"
+            echo "broken=${broken}" >> "$GITHUB_OUTPUT"
+            echo "$broken" >> "$GITHUB_PATH"
+          fi
+          # The metadata step's GitPython and the package build's
+          # setuptools-scm also run git; this test is about the
+          # detector, so point those two elsewhere.
+          {
+            echo "GIT_PYTHON_GIT_EXECUTABLE=${real_git}"
+            echo 'SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0'
+          } >> "$GITHUB_ENV"
+
+      - name: 'Control: prove the planted git is reachable on PATH'
+        shell: bash
+        env:
+          PLANTED_DIR: ${{ steps.plant.outputs.dir }}
+          BROKEN_DIR: ${{ steps.plant.outputs.broken }}
+        run: |
+          # command -v must find the planted git, spelled as planted,
+          # or in the fallback leg the broken git ahead of it
+          set -euo pipefail
+          want="${PLANTED_DIR}/git"
+          [ -z "$BROKEN_DIR" ] || want="${BROKEN_DIR}/git"
+          found="$(command -v git)"
+          if [ "$found" != "$want" ]; then
+            echo "❌ git resolves to '$found'"
+            exit 1
+          fi
+          if [ -n "$BROKEN_DIR" ]; then
+            if "${BROKEN_DIR}/git" --version 2>/dev/null; then
+              echo '❌ The broken git started'
+              exit 1
+            fi
+            # Python's subprocess moves on to the planted git
+            marker="${RUNNER_TEMP}/planted-git-ran"
+            python3 -c 'import subprocess; subprocess.run(["git", "x"])'
+            if [ ! -e "$marker" ]; then
+              echo '❌ subprocess did not fall back to the planted git'
+              exit 1
+            fi
+            rm -f "$marker"
+            echo '✅ A failed git start falls back to the planted git'
+          fi
+          echo '✅ The planted git is reachable on PATH'
+
+      - name: 'Run action with the planted git on PATH'
+        id: planted
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.plant.outputs.base }}
+
+      - name: 'Check detection was skipped'
+        shell: bash
+        env:
+          SIDECAR: '.repository-metadata-dependency-change.json'
+          CHANGED: ${{ steps.planted.outputs.dependencies_changed }}
+          REASON: ${{ steps.planted.outputs.dependency_change_reason }}
+          BASE: ${{ steps.planted.outputs.dependency_change_base }}
+        run: |
+          # Unresolved, naming git, and the planted git never ran
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          status=0
+          if [ -e "${RUNNER_TEMP}/planted-git-ran" ]; then
+            echo '❌ The planted git ran:'
+            cat "${RUNNER_TEMP}/planted-git-ran"
+            status=1
+          fi
+          if [ -n "${CHANGED}${BASE}" ]; then
+            echo '❌ Expected an unresolved result'
+            status=1
+          fi
+          case "$REASON" in
+            unresolved*git*) ;;
+            *) echo '❌ Reason does not name git'; status=1 ;;
+          esac
+          if [ -e "$SIDECAR" ]; then
+            echo '❌ Sidecar left in the workspace'
+            status=1
+          fi
+          [ "$status" -eq 0 ] && echo '✅ Untrusted git skipped detection'
+          exit "$status"
+
   # Dependency change detection against this run's own event
   test-dependency-change-event:
     name: 'Test dependency change detection (event)'
@@ -1389,3 +1544,109 @@ jobs:
           done
           [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
           echo '✅ An applied Gradle script counts as a dependency change'
+
+      # A replace ref swaps one object for another wherever git reads
+      # it. Replacing the commit with its parent makes it diff as empty.
+      - name: 'Commit a package.json and replace it with its parent'
+        id: commit-replaced
+        shell: bash
+        run: |
+          # Add a node manifest, then plant a replace ref that hides it
+          set -euo pipefail
+          base="$(git rev-parse HEAD)"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          mkdir -p "$SCRATCH_DIR/replaced"
+          echo '{}' > "$SCRATCH_DIR/replaced/package.json"
+          git add -- "$SCRATCH_DIR/replaced/package.json"
+          git -c user.name='Test' -c user.email='test@example.invalid' \
+            commit -q --no-gpg-sign -m 'Test: Add replaced package.json'
+          head="$(git rev-parse HEAD)"
+          git replace "$head" "$base"
+          # Control: with replace refs honoured, the commit is empty
+          if [ -n "$(git diff --name-only "$base" "$head")" ]; then
+            echo '❌ The replace ref did not hide the change'
+            exit 1
+          fi
+          echo '✅ The replace ref hides the change from plain git'
+
+      - name: 'Run action against the replaced commit'
+        id: dc-replaced
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.commit-replaced.outputs.base }}
+
+      - name: 'Check replaced commit verdict'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-replaced.outputs.base }}
+          CHANGED: ${{ steps.dc-replaced.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-replaced.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-replaced.outputs.dependency_change_base }}
+        run: |
+          # The detector ignores replace refs and sees the real commit
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          git replace -d "$(git rev-parse HEAD)"
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          [ "$CHANGED" = true ] || { echo '❌ Expected true'; exit 1; }
+          [ "$BASE" = "$WANT_BASE" ] || { echo '❌ Wrong base'; exit 1; }
+          echo '✅ A replace ref does not hide a dependency change'
+
+      # A grafts file rewrites a commit's parents, so HEAD^1 names
+      # another commit. Graft a text-only commit onto the checkout's
+      # own commit: honoured, HEAD^1 would span every scratch commit
+      # above, dependency files included.
+      - name: 'Commit a text file and graft it onto an older commit'
+        id: commit-grafted
+        shell: bash
+        env:
+          OLDER: ${{ steps.commit-package.outputs.base }}
+        run: |
+          # Add a file no preset matches, then plant .git/info/grafts
+          set -euo pipefail
+          parent="$(git rev-parse HEAD)"
+          echo "parent=$parent" >> "$GITHUB_OUTPUT"
+          mkdir -p "$SCRATCH_DIR"
+          echo 'grafted' > "$SCRATCH_DIR/grafted.txt"
+          git add -- "$SCRATCH_DIR/grafted.txt"
+          git -c user.name='Test' -c user.email='test@example.invalid' \
+            commit -q --no-gpg-sign -m 'Test: Add grafted notes'
+          head="$(git rev-parse HEAD)"
+          grafts="$(git rev-parse --git-path info/grafts)"
+          mkdir -p "$(dirname "$grafts")"
+          echo "$head $OLDER" > "$grafts"
+          # Control: with grafts honoured, HEAD^1 is the older commit
+          if [ "$(git rev-parse HEAD^1 2>/dev/null)" != "$OLDER" ]; then
+            echo '❌ The grafts file did not move HEAD^1'
+            exit 1
+          fi
+          echo '✅ The grafts file moves HEAD^1 for plain git'
+
+      # The base is the ref HEAD^1, which a grafts file can move; the
+      # true parent is the commit made just before the text file.
+      - name: 'Run action against the grafted commit'
+        id: dc-grafted
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: 'HEAD^1'
+
+      - name: 'Check grafted commit verdict'
+        shell: bash
+        env:
+          WANT_BASE: ${{ steps.commit-grafted.outputs.parent }}
+          CHANGED: ${{ steps.dc-grafted.outputs.dependencies_changed }}
+          REASON: ${{ steps.dc-grafted.outputs.dependency_change_reason }}
+          BASE: ${{ steps.dc-grafted.outputs.dependency_change_base }}
+        run: |
+          # The detector ignores grafts: the true parent, a text change
+          set -euo pipefail
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          rm -f -- "$(git rev-parse --git-path info/grafts)"
+          [ ! -e "$SIDECAR" ] || { echo '❌ Sidecar left'; exit 1; }
+          [ "$CHANGED" = false ] || { echo '❌ Expected false'; exit 1; }
+          [ "$BASE" = "$WANT_BASE" ] || { echo '❌ Wrong base'; exit 1; }
+          echo '✅ A grafts file does not move the base'
