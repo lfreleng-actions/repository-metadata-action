@@ -979,14 +979,14 @@ jobs:
           [ "$status" -eq 0 ] && echo '✅ Outputs valid; no bait ran'
           exit "$status"
 
-  # The detector runs "git" from PATH. Plant a git in the workspace, put
-  # it first on PATH as a caller's earlier step could, and check that
-  # the action skips detection rather than run it. The swapped leg
-  # reaches the workspace through a differently cased spelling, which
-  # names the same directory on macOS's case-insensitive volume. The
-  # fallback leg puts a git that cannot start, outside the workspace,
-  # ahead of the planted one: Python's subprocess, which the detector
-  # uses, then moves on to the planted git.
+  # The action passes the detector the git that PATH resolves to. Plant
+  # a git in the workspace, put it first on PATH as a caller's earlier
+  # step could, and check that the action skips detection rather than
+  # run it. The swapped leg reaches the workspace through a differently
+  # cased spelling, which names the same directory on macOS's
+  # case-insensitive volume. The fallback leg puts a git that cannot
+  # start, outside the workspace, ahead of the planted one: the action
+  # still checks every candidate, so the later planted git is refused.
   test-untrusted-git:
     name: 'Test untrusted git skips detection'
     runs-on: ${{ matrix.os }}
@@ -1132,6 +1132,175 @@ jobs:
             status=1
           fi
           [ "$status" -eq 0 ] && echo '✅ Untrusted git skipped detection'
+          exit "$status"
+
+  # The detector runs the git the action approved and never searches
+  # PATH itself. Both legs plant their gits under HOME, outside the
+  # workspace and RUNNER_TEMP, so the action approves them. The wrapper
+  # leg puts first on PATH a link to a wrapper that records the name it
+  # ran as, then runs the real git: the detector resolves the path it
+  # is given, so the wrapper sees its own name, where a PATH lookup
+  # shows the link's. The no-fallback leg puts a git that cannot start
+  # first and a recording git after it: detection must stay unresolved
+  # rather than fall back to the second.
+  test-trusted-git:
+    name: 'Test the detector runs the approved git'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        variant: [wrapper, no-fallback]
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # The explicit base must be present
+          persist-credentials: false
+
+      - name: 'Plant gits outside the workspace'
+        id: plant
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          # A recording git appends the name it ran as, then runs git
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/trusted-git-ran"
+          rm -f "$marker"
+          real_git="$(command -v git)"
+          echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          root="${HOME}/trusted-git-test"
+          rm -rf "$root"
+          mkdir -p "${root}/impl" "${root}/first" "${root}/second"
+          plant_recorder() {
+            # $0 and $@ belong to the planted script, not this one
+            # shellcheck disable=SC2016
+            printf '#!/bin/sh\necho "$0" >> "%s"\nexec "%s" "$@"\n' \
+              "$marker" "$real_git" > "$1"
+            chmod +x "$1"
+          }
+          if [ "$VARIANT" = wrapper ]; then
+            plant_recorder "${root}/impl/git-wrapper"
+            ln -s "${root}/impl/git-wrapper" "${root}/first/git"
+            want="$(cd -P "${root}/impl" && pwd -P)/git-wrapper"
+            echo "want=${want}" >> "$GITHUB_OUTPUT"
+          else
+            printf '#!/nonexistent/interpreter\n' > "${root}/first/git"
+            chmod +x "${root}/first/git"
+            plant_recorder "${root}/second/git"
+            echo "${root}/second" >> "$GITHUB_PATH"
+          fi
+          echo "first=${root}/first/git" >> "$GITHUB_OUTPUT"
+          # Added last, so first on PATH
+          echo "${root}/first" >> "$GITHUB_PATH"
+          # The metadata step's GitPython and the package build's
+          # setuptools-scm also run git; this test is about the
+          # detector, so point those two elsewhere.
+          {
+            echo "GIT_PYTHON_GIT_EXECUTABLE=${real_git}"
+            echo 'SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0'
+          } >> "$GITHUB_ENV"
+
+      - name: 'Control: prove the planted gits are live'
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          FIRST: ${{ steps.plant.outputs.first }}
+        run: |
+          # The first planted git is the PATH lookup; in the no-fallback
+          # leg, Python's subprocess moves on to the recording git
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/trusted-git-ran"
+          found="$(command -v git)"
+          if [ "$found" != "$FIRST" ]; then
+            echo "❌ git resolves to '$found'"
+            exit 1
+          fi
+          if [ "$VARIANT" = no-fallback ]; then
+            if "$FIRST" --version 2>/dev/null; then
+              echo '❌ The broken git started'
+              exit 1
+            fi
+            python3 -c 'import subprocess; subprocess.run(["git", "--version"])'
+            if [ ! -e "$marker" ]; then
+              echo '❌ subprocess did not fall back to the recording git'
+              exit 1
+            fi
+            rm -f "$marker"
+            echo '✅ A failed git start falls back to the recording git'
+          fi
+          echo '✅ The planted git is first on PATH'
+
+      - name: 'Run action with the planted gits on PATH'
+        id: trusted
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          dependency_change: 'true'
+          dependency_base: ${{ steps.plant.outputs.base }}
+
+      - name: 'Check the detector ran the approved git'
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          SIDECAR: '.repository-metadata-dependency-change.json'
+          WANT: ${{ steps.plant.outputs.want }}
+          WANT_BASE: ${{ steps.plant.outputs.base }}
+          CHANGED: ${{ steps.trusted.outputs.dependencies_changed }}
+          REASON: ${{ steps.trusted.outputs.dependency_change_reason }}
+          BASE: ${{ steps.trusted.outputs.dependency_change_base }}
+        run: |
+          # Wrapper: resolved, and the wrapper ran as its resolved name.
+          # No-fallback: unresolved, and the recording git never ran.
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/trusted-git-ran"
+          echo "changed='$CHANGED' base='$BASE' reason='$REASON'"
+          status=0
+          if [ "$VARIANT" = wrapper ]; then
+            case "$CHANGED" in
+              true|false) ;;
+              *) echo '❌ Expected a resolved result'; status=1 ;;
+            esac
+            if [ "$BASE" != "$WANT_BASE" ]; then
+              echo "❌ dependency_change_base is not '$WANT_BASE'"
+              status=1
+            fi
+            if ! grep -Fqx -- "$WANT" "$marker" 2>/dev/null; then
+              echo "❌ The wrapper never ran as '$WANT':"
+              cat "$marker" 2>/dev/null || true
+              status=1
+            fi
+          else
+            if [ -e "$marker" ]; then
+              echo '❌ The recording git ran:'
+              cat "$marker"
+              status=1
+            fi
+            if [ -n "${CHANGED}${BASE}" ]; then
+              echo '❌ Expected an unresolved result'
+              status=1
+            fi
+            case "$REASON" in
+              unresolved*git*) ;;
+              *) echo '❌ Reason does not name git'; status=1 ;;
+            esac
+          fi
+          if [ -e "$SIDECAR" ]; then
+            echo '❌ Sidecar left in the workspace'
+            status=1
+          fi
+          [ "$status" -eq 0 ] && echo '✅ The detector ran the approved git'
           exit "$status"
 
   # Dependency change detection against this run's own event
