@@ -7,10 +7,11 @@ Orchestrates metadata extraction, formatting, and output generation.
 """
 
 import logging
+import os
 import secrets
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .config import Config, get_config
 from .constants import GITHUB_OUTPUT_DELIMITER_RANDOM_BYTES
@@ -29,9 +30,16 @@ from .extractors import (
     WorkflowRunExtractor,
 )
 from .formatters import ArtifactGenerator, JsonFormatter, MarkdownFormatter, YamlFormatter
-from .git_operations import GitOperations
 from .github_api import GitHubAPI
 from .models import CompleteMetadata
+
+if TYPE_CHECKING:
+    # Importing GitPython runs git, so the runtime import waits until
+    # the action has approved one; see _init_git_ops().
+    from .git_operations import GitOperations
+
+# Set by the action, with the reason, when it approved no git
+NO_TRUSTED_GIT_ENV = "TRUSTED_GIT_PROBLEM"
 
 
 def setup_logging() -> logging.Logger:
@@ -149,10 +157,58 @@ def _init_github_api(config: Config, logger: logging.Logger) -> GitHubAPI | None
         return None
 
 
+def _workflow_command_text(text: str) -> str:
+    """Escape text for the message of a workflow command."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _init_git_ops(config: Config, logger: logging.Logger) -> "GitOperations | None":
+    """
+    Create the git operations helper, or none without a trusted git.
+
+    Importing GitPython runs git at once, so nothing imports it when the
+    action approved no git or GitPython cannot run the approved one. The
+    action then warns once and carries on: git-derived metadata stays
+    empty, and changed files come from the GitHub API where it can.
+
+    Args:
+        config: Action configuration
+        logger: Logger instance
+
+    Returns:
+        A GitOperations helper, or None when no trusted git can run
+    """
+    problem = os.environ.get(NO_TRUSTED_GIT_ENV, "").strip()
+    if not problem:
+        executable = os.environ.get("GIT_PYTHON_GIT_EXECUTABLE", "")
+        if executable and Path(executable).is_absolute():
+            # Run the approved git by its resolved path, as the
+            # dependency detector does
+            os.environ["GIT_PYTHON_GIT_EXECUTABLE"] = str(Path(executable).resolve())
+        try:
+            from .git_operations import GitOperations
+        except ImportError as e:
+            detail = next(iter(str(e).splitlines()), "") or type(e).__name__
+            problem = f"GitPython could not run the trusted git: {detail}"
+        else:
+            git_ops = GitOperations(repo_path=config.GITHUB_WORKSPACE, logger=logger)
+            if git_ops.has_git_repo():
+                logger.debug("Git repository detected")
+            else:
+                logger.debug("No git repository available")
+            return git_ops
+
+    print(
+        "::warning::No trusted git, so git-derived metadata stays empty: "
+        + _workflow_command_text(problem)
+    )
+    return None
+
+
 def _extract_metadata(
     config: Config,
     github_api: GitHubAPI | None,
-    git_ops: GitOperations,
+    git_ops: "GitOperations | None",
     logger: logging.Logger,
 ) -> CompleteMetadata:
     """
@@ -161,7 +217,7 @@ def _extract_metadata(
     Args:
         config: Action configuration
         github_api: Optional GitHub API client
-        git_ops: Git operations helper
+        git_ops: Git operations helper, or None without a trusted git
         logger: Logger instance
 
     Returns:
@@ -347,12 +403,7 @@ def main() -> int:
         github_api_context = github_api if github_api else _NullContextManager()
 
         with github_api_context:
-            git_ops = GitOperations(repo_path=config.GITHUB_WORKSPACE, logger=logger)
-            if git_ops.has_git_repo():
-                logger.debug("Git repository detected")
-            else:
-                logger.debug("No git repository available")
-
+            git_ops = _init_git_ops(config, logger)
             metadata = _extract_metadata(config, github_api, git_ops, logger)
             logger.info("Metadata extraction complete")
 
