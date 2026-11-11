@@ -47,7 +47,12 @@ def executable(path: Path, body: str) -> Path:
     return path
 
 
-def run_guard(tmp_path: Path, path_entries: list[Path | str], interpreter: Path) -> dict[str, str]:
+def run_guard(
+    tmp_path: Path,
+    path_entries: list[Path | str],
+    interpreter: Path,
+    dependency_change: str = "true",
+) -> dict[str, str]:
     """Run the guard with PATH set to path_entries and parse its outputs."""
     script = tmp_path / "guard.sh"
     step = guard_step()
@@ -60,7 +65,7 @@ def run_guard(tmp_path: Path, path_entries: list[Path | str], interpreter: Path)
     runner_temp.mkdir(exist_ok=True)
     env = {
         "PATH": ":".join(str(entry) for entry in path_entries),
-        "DEPENDENCY_CHANGE": "true",
+        "DEPENDENCY_CHANGE": dependency_change,
         "SIDECAR": ".repository-metadata-dependency-change.json",
         "INTERPRETER": str(interpreter),
         "PYTHONEXECUTABLE": "",
@@ -342,3 +347,45 @@ def test_git_path_that_is_not_utf8_is_refused(tmp_path: Path, trusted_dir: Path)
     reason = outputs.get("reason", "")
     assert reason.startswith("unresolved: git path"), reason
     assert "cannot pass to the detector unchanged" in reason, reason
+
+
+@pytest.mark.xfail(strict=True, reason="the git check runs only with detection on")
+@pytest.mark.parametrize("dependency_change", ["true", "false"])
+def test_trusted_git_is_reported_on_every_run(
+    tmp_path: Path, trusted_dir: Path, dependency_change: str
+) -> None:
+    """The approved git reaches the metadata step whatever the opt-in."""
+    first_dir = tmp_path / "first"
+    first_dir.mkdir()
+    (first_dir / "git").symlink_to(str(GIT))
+
+    outputs = run_guard(
+        tmp_path, [trusted_dir, first_dir], trusted_dir / "python3", dependency_change
+    )
+
+    assert outputs.get("enabled") == dependency_change, outputs
+    assert outputs.get("trusted_git") == str(first_dir / "git"), outputs
+    assert outputs.get("git_problem") == "", outputs
+
+
+@pytest.mark.xfail(strict=True, reason="the git check runs only with detection on")
+@pytest.mark.parametrize("dependency_change", ["true", "false"])
+def test_refused_git_is_reported_on_every_run(
+    tmp_path: Path, trusted_dir: Path, dependency_change: str
+) -> None:
+    """A refused git leaves trusted_git empty and says why, unrun."""
+    marker = tmp_path / "planted-git-ran"
+    planted_dir = tmp_path / "workspace" / "bin"
+    executable(planted_dir / "git", f"echo ran >> '{marker}'")
+
+    outputs = run_guard(
+        tmp_path, [trusted_dir, planted_dir], trusted_dir / "python3", dependency_change
+    )
+
+    assert outputs.get("trusted_git") == "", outputs
+    problem = outputs.get("git_problem", "")
+    assert problem.startswith("git candidate"), outputs
+    assert "inside the workspace or RUNNER_TEMP" in problem, outputs
+    assert not marker.exists()
+    if dependency_change == "true":
+        assert outputs.get("reason") == f"unresolved: {problem}; detection skipped", outputs
