@@ -539,6 +539,30 @@ the repository to the workspace root, not to a `path:` subdirectory.
 The action automatically handles shallow clones by fetching the base branch
 when needed for accurate file change detection.
 
+### Which git the action runs
+
+The action runs git in two places besides dependency change detection:
+GitPython in the metadata step, and the package build of the action
+itself. On every run, whatever `dependency_change` says, the action
+applies the `git` check that
+[Dependency Change Detection](#dependency-change-detection) describes,
+and runs no `git` but the one it approves:
+
+- The metadata step drops the caller's `GIT_*` variables, points
+  GitPython at the approved `git` by its resolved path and stops
+  GitPython from falling back to a `PATH` lookup. A caller's
+  `GIT_DIR` cannot redirect the git-derived outputs away from the
+  workspace checkout.
+- The package build gets its version without running git.
+
+When no `git` passes the check, or the approved `git` fails to start,
+the metadata step logs one warning naming the problem and runs no git.
+The other outputs still work, and the git-derived outputs stay empty:
+the commit message and author, the `changed_files_last_commit*`
+outputs, the Gerrit Change-Id read from the commit message, and the
+changed files of a push. With `github_token` set, pull request changed
+files still come from the GitHub API.
+
 ### Git Fetch Depth Configuration
 
 When using git-based detection with shallow clones, the action may need to
@@ -734,31 +758,33 @@ warning. When detection is on, the step summary records
 `Dependency change: <reason>` whatever the summary inputs say.
 
 The detector runs `python3` from `PATH`, and the action finds the `git`
-it passes the detector on `PATH` too. A caller's earlier step can put
-a checkout directory such as `.venv/bin` or `bin/` first on it, where
-the change under review could supply either. So the action sets up its
-own interpreter before detection, checks that `python3` resolves to it,
-and clears `PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__` for both that
-check and the detector, since they can redirect Python on macOS even in
-isolated mode. The action passes the detector, through its `git`
-input, the first executable `git` on `PATH`, the one a `PATH` lookup
-would run; the detector runs that one file and never searches `PATH`,
-so a first `git` that fails to start gives an unresolved result rather
-than a later one running. As defence in depth the action checks every
-executable `git` on `PATH`, in order, not the first alone: it resolves
-each through any symbolic links and requires it to lie outside both
-`GITHUB_WORKSPACE` and `RUNNER_TEMP`. A `PATH` entry in either
+it passes the detector on `PATH` too. The action checks `git` on every
+run, since the metadata step runs the same approved `git`; see [Which
+git the action runs](#which-git-the-action-runs). A caller's earlier
+step can put a checkout directory such as `.venv/bin` or `bin/` first on
+`PATH`, where the change under review could supply either. So the action
+sets up its own interpreter before detection, checks that `python3`
+resolves to it, and clears `PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__`
+for both that check and the detector, since they can redirect Python on
+macOS even in isolated mode. The action passes the detector, through its
+`git` input, the first executable `git` on `PATH`, the one a `PATH`
+lookup would run; the detector runs that one file and never searches
+`PATH`, so a first `git` that fails to start gives an unresolved result
+rather than a later one running. As defence in depth the action checks
+every executable `git` on `PATH`, in order, not the first alone: it
+resolves each through any symbolic links and requires it to lie outside
+both `GITHUB_WORKSPACE` and `RUNNER_TEMP`. A `PATH` entry in either
 directory that holds no `git` is fine. A relative `PATH` entry, empty
 ones included, fails the check outright, since it resolves against the
-detector's working directory. The action compares filesystem
-identities, not path text, so a differently cased spelling of the
-workspace on a case-insensitive volume still counts as inside it. A
-`python3` lookup or `git` candidate whose path holds a line break fails
-its check outright, as does a chosen `git` whose path is not UTF-8, so
-the action never validates or passes a cleaned path that differs from
-the one the detector runs. When either check fails, the action skips
-detection and reports an unresolved result, which gates, with a
-warning naming the path.
+detector's working directory. The action compares filesystem identities,
+not path text, so a differently cased spelling of the workspace on a
+case-insensitive volume still counts as inside it. A `python3` lookup or
+`git` candidate whose path holds a line break fails its check outright,
+as does a chosen `git` whose path is not UTF-8, so the action never
+validates or passes a cleaned path that differs from the one the
+detector runs. When either check fails, the action skips detection and
+reports an unresolved result, which gates, with a warning naming the
+path.
 
 The detector runs git without any of the caller's `GIT_*` variables,
 and itself sets `GIT_NO_REPLACE_OBJECTS=1` and
@@ -942,9 +968,11 @@ input in your workflows going forward.
 - The action starts Python through the absolute interpreter that
   `actions/setup-python` reports, in isolated mode (`-I`), so caller
   settings such as `UV_PYTHON`, `VIRTUAL_ENV` or `PYTHONPATH` cannot
-  choose it. The action trusts the caller's `PATH`: a caller step that
-  puts a directory from its checkout on `PATH` controls the tools every
-  `shell: bash` step starts, and no composite action can defend
+  choose it. The action checks the `python3` and `git` it finds on
+  `PATH` and refuses ones from the workspace or `RUNNER_TEMP`, but
+  trusts `PATH` for every other tool, `bash` included: a caller step
+  that puts a directory from its checkout on `PATH` controls the tools
+  every `shell: bash` step starts, and no composite action can defend
   against that
 - For pull requests, changed files detection works best when you check out
   the repository with full git history (`fetch-depth: 0`)
