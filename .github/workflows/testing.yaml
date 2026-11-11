@@ -1025,7 +1025,6 @@ jobs:
           set -euo pipefail
           marker="${RUNNER_TEMP}/planted-git-ran"
           rm -f "$marker"
-          real_git="$(command -v git)"
           echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
           mkdir -p planted-git
           printf '#!/bin/sh\necho "git $*" >> "%s"\nexit 0\n' "$marker" \
@@ -1053,13 +1052,6 @@ jobs:
             echo "broken=${broken}" >> "$GITHUB_OUTPUT"
             echo "$broken" >> "$GITHUB_PATH"
           fi
-          # The metadata step's GitPython and the package build's
-          # setuptools-scm also run git; this test is about the
-          # detector, so point those two elsewhere.
-          {
-            echo "GIT_PYTHON_GIT_EXECUTABLE=${real_git}"
-            echo 'SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0'
-          } >> "$GITHUB_ENV"
 
       - name: 'Control: prove the planted git is reachable on PATH'
         shell: bash
@@ -1141,8 +1133,9 @@ jobs:
   # ran as, then runs the real git: the detector resolves the path it
   # is given, so the wrapper sees its own name, where a PATH lookup
   # shows the link's. The no-fallback leg puts a git that cannot start
-  # first and a recording git after it: detection must stay unresolved
-  # rather than fall back to the second.
+  # first and a recording git after it, and asks GitPython to fall back
+  # quietly: detection must stay unresolved, and neither the detector,
+  # GitPython nor the package build may fall back to the second.
   test-trusted-git:
     name: 'Test the detector runs the approved git'
     runs-on: ${{ matrix.os }}
@@ -1200,17 +1193,12 @@ jobs:
             chmod +x "${root}/first/git"
             plant_recorder "${root}/second/git"
             echo "${root}/second" >> "$GITHUB_PATH"
+            # Quiet makes GitPython fall back to a PATH lookup of git
+            echo 'GIT_PYTHON_REFRESH=quiet' >> "$GITHUB_ENV"
           fi
           echo "first=${root}/first/git" >> "$GITHUB_OUTPUT"
           # Added last, so first on PATH
           echo "${root}/first" >> "$GITHUB_PATH"
-          # The metadata step's GitPython and the package build's
-          # setuptools-scm also run git; this test is about the
-          # detector, so point those two elsewhere.
-          {
-            echo "GIT_PYTHON_GIT_EXECUTABLE=${real_git}"
-            echo 'SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0'
-          } >> "$GITHUB_ENV"
 
       - name: 'Control: prove the planted gits are live'
         shell: bash
@@ -1301,6 +1289,190 @@ jobs:
             status=1
           fi
           [ "$status" -eq 0 ] && echo '✅ The detector ran the approved git'
+          exit "$status"
+
+  # The metadata step and the package build run git on every run, not
+  # only when dependency_change is on. With detection off, each leg
+  # checks they run only the git the action approved. The planted leg
+  # puts a recording git in the workspace first on PATH: no git runs,
+  # the git-derived outputs stay empty, and the API still lists a pull
+  # request's files. The approved leg puts first on PATH a link to a
+  # recording wrapper under HOME: GitPython runs it by its resolved
+  # name and the outputs match plain git. The git-dir leg points the
+  # caller's GIT_DIR at another repository: the outputs must still
+  # describe the workspace checkout.
+  test-git-detection-off:
+    name: 'Test the metadata step runs the approved git'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      pull-requests: read  # The planted leg lists PR files via the API
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        variant: [planted, approved, git-dir]
+    steps:
+      # Harden the runner used by this workflow
+      # yamllint disable-line rule:line-length
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        name: 'Harden runner'
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2  # changed_files_last_commit needs HEAD^1
+          persist-credentials: false
+
+      - name: 'Plant the test git setup'
+        id: plant
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          # Each planted git appends the name it ran as, then exits or
+          # runs the real git
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/metadata-git-ran"
+          rm -f "$marker"
+          real_git="$(command -v git)"
+          echo "real_git=${real_git}" >> "$GITHUB_OUTPUT"
+          case "$VARIANT" in
+            planted)
+              mkdir -p planted-git
+              # shellcheck disable=SC2016
+              printf '#!/bin/sh\necho "$0" >> "%s"\nexit 0\n' "$marker" \
+                > planted-git/git
+              chmod +x planted-git/git
+              echo "first=${GITHUB_WORKSPACE}/planted-git/git" \
+                >> "$GITHUB_OUTPUT"
+              echo "${GITHUB_WORKSPACE}/planted-git" >> "$GITHUB_PATH"
+              ;;
+            approved)
+              root="${HOME}/metadata-git-test"
+              rm -rf "$root"
+              mkdir -p "${root}/impl" "${root}/first"
+              # shellcheck disable=SC2016
+              printf '#!/bin/sh\necho "$0" >> "%s"\nexec "%s" "$@"\n' \
+                "$marker" "$real_git" > "${root}/impl/git-wrapper"
+              chmod +x "${root}/impl/git-wrapper"
+              ln -s "${root}/impl/git-wrapper" "${root}/first/git"
+              want="$(cd -P "${root}/impl" && pwd -P)/git-wrapper"
+              echo "want=${want}" >> "$GITHUB_OUTPUT"
+              echo "first=${root}/first/git" >> "$GITHUB_OUTPUT"
+              echo "${root}/first" >> "$GITHUB_PATH"
+              ;;
+            git-dir)
+              # Another repository whose last commit differs
+              other="${RUNNER_TEMP}/other-repo"
+              rm -rf "$other"
+              "$real_git" init -q "$other"
+              echo other > "${other}/other.txt"
+              "$real_git" -C "$other" add other.txt
+              "$real_git" -C "$other" -c user.name=t -c user.email=t@t \
+                commit -q -m 'Hostile commit'
+              echo "GIT_DIR=${other}/.git" >> "$GITHUB_ENV"
+              ;;
+          esac
+
+      - name: 'Control: prove the planted setup is live'
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          FIRST: ${{ steps.plant.outputs.first }}
+        run: |
+          # The planted git is the PATH lookup; a GIT_DIR git obeys it
+          set -euo pipefail
+          if [ "$VARIANT" = git-dir ]; then
+            subject="$(git log -1 --format=%s)"
+            if [ "$subject" != 'Hostile commit' ]; then
+              echo "❌ GIT_DIR not honoured: '$subject'"
+              exit 1
+            fi
+            echo '✅ A plain git reads the hostile GIT_DIR'
+            exit 0
+          fi
+          found="$(command -v git)"
+          if [ "$found" != "$FIRST" ]; then
+            echo "❌ git resolves to '$found'"
+            exit 1
+          fi
+          echo '✅ The planted git is first on PATH'
+
+      - name: 'Run action with detection off'
+        id: metadata
+        uses: $/
+        with:
+          artifact_upload: 'false'
+          github_token: ${{ matrix.variant == 'planted' && github.token || '' }}
+
+      - name: 'Check the metadata step ran only the approved git'
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          REAL_GIT: ${{ steps.plant.outputs.real_git }}
+          WANT: ${{ steps.plant.outputs.want }}
+          METADATA_JSON: ${{ steps.metadata.outputs.metadata_json }}
+          COMMIT_MESSAGE: ${{ steps.metadata.outputs.commit_message }}
+          CHANGED_FILES: ${{ steps.metadata.outputs.changed_files }}
+          # yamllint disable-line rule:line-length
+          LAST_COMMIT_FILES: ${{ steps.metadata.outputs.changed_files_last_commit }}
+        run: |
+          # Planted: no git ran and git-derived outputs stay empty.
+          # Approved and git-dir: outputs match the workspace checkout.
+          set -euo pipefail
+          unset GIT_DIR
+          marker="${RUNNER_TEMP}/metadata-git-ran"
+          status=0
+          if ! printf '%s' "$METADATA_JSON" | python3 -m json.tool \
+            > /dev/null; then
+            echo '❌ metadata_json is not valid JSON'
+            status=1
+          fi
+          sorted_lines() { printf '%s\n' "$1" | LC_ALL=C sort; }
+          if [ "$VARIANT" = planted ]; then
+            if [ -e "$marker" ]; then
+              echo '❌ The planted git ran:'
+              cat "$marker"
+              status=1
+            fi
+            if [ -n "${COMMIT_MESSAGE}${LAST_COMMIT_FILES}" ]; then
+              echo '❌ Expected empty git-derived outputs'
+              status=1
+            fi
+            if [ "$GITHUB_EVENT_NAME" = pull_request ] \
+              && [ -z "$CHANGED_FILES" ]; then
+              echo '❌ The API listed no changed files'
+              status=1
+            fi
+          else
+            if [ "$VARIANT" = approved ] \
+              && ! grep -Fqx -- "$WANT" "$marker" 2>/dev/null; then
+              echo "❌ The wrapper never ran as '$WANT':"
+              cat "$marker" 2>/dev/null || true
+              status=1
+            fi
+            full_message="$("$REAL_GIT" show -s --format=%B HEAD)"
+            want_message="${full_message%%$'\n'*}"
+            if [ "$COMMIT_MESSAGE" != "$want_message" ]; then
+              echo "❌ commit_message is '$COMMIT_MESSAGE'"
+              echo "   expected '$want_message'"
+              status=1
+            fi
+            want_files="$("$REAL_GIT" -c core.quotePath=false \
+              diff --name-only -M HEAD^1 HEAD)"
+            if [ "$(sorted_lines "$LAST_COMMIT_FILES")" \
+              != "$(sorted_lines "$want_files")" ]; then
+              echo '❌ changed_files_last_commit differs from plain git'
+              printf 'got:\n%s\nexpected:\n%s\n' \
+                "$LAST_COMMIT_FILES" "$want_files"
+              status=1
+            fi
+          fi
+          [ "$status" -eq 0 ] && echo '✅ The metadata step ran the approved git'
           exit "$status"
 
   # Dependency change detection against this run's own event
