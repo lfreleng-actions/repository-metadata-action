@@ -20,7 +20,7 @@ import pytest
 import yaml
 
 ACTION = Path(__file__).resolve().parent.parent / "action.yaml"
-STEP_NAME = "Check dependency change inputs"
+STEP_NAME = "Check git and dependency change inputs"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 
@@ -349,7 +349,6 @@ def test_git_path_that_is_not_utf8_is_refused(tmp_path: Path, trusted_dir: Path)
     assert "cannot pass to the detector unchanged" in reason, reason
 
 
-@pytest.mark.xfail(strict=True, reason="the git check runs only with detection on")
 @pytest.mark.parametrize("dependency_change", ["true", "false"])
 def test_trusted_git_is_reported_on_every_run(
     tmp_path: Path, trusted_dir: Path, dependency_change: str
@@ -368,7 +367,6 @@ def test_trusted_git_is_reported_on_every_run(
     assert outputs.get("git_problem") == "", outputs
 
 
-@pytest.mark.xfail(strict=True, reason="the git check runs only with detection on")
 @pytest.mark.parametrize("dependency_change", ["true", "false"])
 def test_refused_git_is_reported_on_every_run(
     tmp_path: Path, trusted_dir: Path, dependency_change: str

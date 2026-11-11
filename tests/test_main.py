@@ -7,6 +7,8 @@ Covers orchestration, output generation, and integration flow.
 """
 
 import json
+import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import ANY, Mock, patch
@@ -15,7 +17,15 @@ import pytest
 import yaml
 
 from src.exceptions import MetadataExtractionError
-from src.main import main, print_summary, setup_logging, write_github_output, write_step_summary
+from src.main import (
+    NO_TRUSTED_GIT_ENV,
+    _init_git_ops,
+    main,
+    print_summary,
+    setup_logging,
+    write_github_output,
+    write_step_summary,
+)
 from src.models import (
     ActorMetadata,
     CacheMetadata,
@@ -381,7 +391,7 @@ class TestMainFunction:
 
     @patch("src.main.get_config")
     @patch("src.main.GitHubAPI")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.RepositoryExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RefExtractor")
@@ -458,7 +468,7 @@ class TestMainFunction:
 
     @patch("src.main.get_config")
     @patch("src.main.GitHubAPI")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.RepositoryExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RefExtractor")
@@ -531,7 +541,7 @@ class TestMainFunction:
 
     @patch("src.main.get_config")
     @patch("src.main.GitHubAPI")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.RepositoryExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RefExtractor")
@@ -672,7 +682,7 @@ class TestMainFunction:
 
     @patch("src.main.get_config")
     @patch("src.main.GitHubAPI")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.RepositoryExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RefExtractor")
@@ -739,7 +749,7 @@ class TestMainFunction:
         assert not mock_github_api.called
 
     @patch("src.main.get_config")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.RepositoryExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RefExtractor")
@@ -846,7 +856,7 @@ class TestMainLastCommitFiles:
     @patch("src.main.RefExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RepositoryExtractor")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.get_config")
     @patch("builtins.open", create=True)
     def test_main_with_last_commit_files_summary(
@@ -938,7 +948,7 @@ class TestMainLastCommitFiles:
     @patch("src.main.RefExtractor")
     @patch("src.main.EventExtractor")
     @patch("src.main.RepositoryExtractor")
-    @patch("src.main.GitOperations")
+    @patch("src.git_operations.GitOperations")
     @patch("src.main.get_config")
     @patch("builtins.open", create=True)
     def test_main_no_last_commit_summary_without_gerrit(
@@ -1013,3 +1023,67 @@ class TestMainLastCommitFiles:
 
         # Last commit files section should NOT be present (no Gerrit change_id)
         assert not any("Changed Files (Last Commit)" in str(call) for call in calls)
+
+
+class TestInitGitOps:
+    """Tests for creating git operations only with a trusted git."""
+
+    @pytest.fixture
+    def config(self):
+        """A config whose workspace is a plain directory."""
+        mock_config = Mock()
+        mock_config.GITHUB_WORKSPACE = Path("/workspace")
+        return mock_config
+
+    @patch("src.git_operations.GitOperations")
+    def test_trusted_git_creates_git_ops(self, mock_git_ops, config, monkeypatch, capsys):
+        """With an approved git, GitOperations targets the workspace."""
+        monkeypatch.delenv(NO_TRUSTED_GIT_ENV, raising=False)
+
+        git_ops = _init_git_ops(config, Mock())
+
+        assert git_ops is mock_git_ops.return_value
+        mock_git_ops.assert_called_once_with(repo_path=Path("/workspace"), logger=ANY)
+        assert "::warning::" not in capsys.readouterr().out
+
+    def test_approved_git_runs_by_resolved_path(self, config, monkeypatch, tmp_path):
+        """GitPython gets the approved git's resolved path."""
+        target = tmp_path / "impl" / "git"
+        target.parent.mkdir()
+        target.touch()
+        link = tmp_path / "git"
+        link.symlink_to(target)
+        monkeypatch.delenv(NO_TRUSTED_GIT_ENV, raising=False)
+        monkeypatch.setenv("GIT_PYTHON_GIT_EXECUTABLE", str(link))
+
+        with patch("src.git_operations.GitOperations"):
+            _init_git_ops(config, Mock())
+
+        assert os.environ["GIT_PYTHON_GIT_EXECUTABLE"] == str(target.resolve())
+
+    @patch("src.git_operations.GitOperations")
+    def test_no_trusted_git_warns_once(self, mock_git_ops, config, monkeypatch, capsys):
+        """Without an approved git, one warning carries the reason."""
+        monkeypatch.setenv(NO_TRUSTED_GIT_ENV, "no executable git on PATH\nsecond line 100%")
+
+        assert _init_git_ops(config, Mock()) is None
+
+        mock_git_ops.assert_not_called()
+        warnings = [
+            line for line in capsys.readouterr().out.splitlines() if line.startswith("::warning::")
+        ]
+        prefix = "::warning::No trusted git, so git-derived metadata stays empty: "
+        assert warnings == [prefix + "no executable git on PATH%0Asecond line 100%25"]
+
+    def test_failed_gitpython_import_warns_once(self, config, monkeypatch, capsys):
+        """A GitPython that cannot refresh leaves git out with a warning."""
+        monkeypatch.delenv(NO_TRUSTED_GIT_ENV, raising=False)
+        monkeypatch.delenv("GIT_PYTHON_GIT_EXECUTABLE", raising=False)
+        # A None entry makes the import raise ImportError
+        monkeypatch.setitem(sys.modules, "src.git_operations", None)
+
+        assert _init_git_ops(config, Mock()) is None
+
+        out = capsys.readouterr().out
+        assert out.count("::warning::") == 1
+        assert "GitPython could not run the trusted git" in out

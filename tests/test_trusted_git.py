@@ -114,7 +114,6 @@ def run_metadata_step(tmp_path: Path, step_env: dict[str, str]) -> dict[str, str
     return environment
 
 
-@pytest.mark.xfail(strict=True, reason="the metadata step keeps the caller's GIT_* variables")
 def test_metadata_step_pins_the_trusted_git(tmp_path: Path) -> None:
     """Only the action's own GIT_* settings reach src.main."""
     env = run_metadata_step(tmp_path, {"TRUSTED_GIT": str(GIT), "TRUSTED_GIT_PROBLEM": ""})
@@ -130,7 +129,6 @@ def test_metadata_step_pins_the_trusted_git(tmp_path: Path) -> None:
     assert "PYTHONPATH" not in env
 
 
-@pytest.mark.xfail(strict=True, reason="the metadata step keeps the caller's GIT_* variables")
 @pytest.mark.parametrize("problem", ["no executable git on PATH", ""])
 def test_metadata_step_without_trusted_git(tmp_path: Path, problem: str) -> None:
     """Without an approved git, src.main gets a reason and no git."""
@@ -144,7 +142,6 @@ def test_metadata_step_without_trusted_git(tmp_path: Path, problem: str) -> None
         assert env["TRUSTED_GIT_PROBLEM"] == problem
 
 
-@pytest.mark.xfail(strict=True, reason="the metadata step passes the caller's GIT_FETCH_DEPTH")
 def test_git_fetch_depth_reaches_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The git_fetch_depth input survives the GIT_* filter into Config."""
     env = run_metadata_step(tmp_path, {"TRUSTED_GIT": str(GIT), "TRUSTED_GIT_PROBLEM": ""})
@@ -258,7 +255,6 @@ def assert_ran_without_git(tmp_path: Path, result: Any, outputs: dict[str, str])
     assert outputs["changed_files_last_commit"] == ""
 
 
-@pytest.mark.xfail(strict=True, reason="src.main imports GitPython at module level")
 def test_main_without_trusted_git_runs_no_git(tmp_path: Path, workspace: Path) -> None:
     """With no approved git, src.main never loads GitPython."""
     result, outputs = run_main(
@@ -270,7 +266,6 @@ def test_main_without_trusted_git_runs_no_git(tmp_path: Path, workspace: Path) -
     assert "no executable git on PATH" in warnings_of(result.stdout)[0]
 
 
-@pytest.mark.xfail(strict=True, reason="src.main fails when GitPython cannot refresh")
 def test_main_when_trusted_git_cannot_start(tmp_path: Path, workspace: Path) -> None:
     """An approved git that cannot start leaves git out; no fallback runs."""
     broken = tmp_path / "broken" / "git"
@@ -287,7 +282,6 @@ def test_main_when_trusted_git_cannot_start(tmp_path: Path, workspace: Path) -> 
     assert_ran_without_git(tmp_path, result, outputs)
 
 
-@pytest.mark.xfail(strict=True, reason="GitPython runs the approved git as spelled, not resolved")
 def test_main_runs_the_approved_git(tmp_path: Path, workspace: Path) -> None:
     """GitPython runs the approved git by its resolved path, never PATH's."""
     marker = tmp_path / "trusted-git-ran"

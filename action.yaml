@@ -332,7 +332,10 @@ runs:
 
     # Dependency change detection runs before any step that could
     # change the checkout, so it sees it exactly as the caller left it.
-    - name: 'Check dependency change inputs'
+    # This step also finds the one git the action runs, on every run,
+    # before any step that could run git: the metadata step pins
+    # GitPython to it, and runs no git when there is none.
+    - name: 'Check git and dependency change inputs'
       id: dependency-change-setup
       shell: bash
       env:
@@ -346,14 +349,15 @@ runs:
         PYTHONEXECUTABLE: ''
         __PYVENV_LAUNCHER__: ''
         # The detector runs the one git passed as its "git" input and
-        # never searches PATH. Pick the git a PATH lookup finds first,
-        # the first runnable candidate, and pass that. Check every
-        # candidate, not just the first, as defence in depth. A
-        # relative entry resolves against the detector's directory,
-        # which this check cannot see, so refuse it outright. The
-        # chosen path reaches the detector through GITHUB_OUTPUT, which
-        # the runner reads as UTF-8, so refuse a path that is not UTF-8
-        # rather than pass an altered one.
+        # never searches PATH; the metadata step runs the same git.
+        # Pick the git a PATH lookup finds first, the first runnable
+        # candidate, and pass that. Check every candidate, not just the
+        # first, as defence in depth. A relative entry resolves against
+        # the detector's directory, which this check cannot see, so
+        # refuse it outright. The chosen path reaches the detector
+        # through GITHUB_OUTPUT, which the runner reads as UTF-8, so
+        # refuse a path that is not UTF-8 rather than pass an altered
+        # one.
         # Exits 0 and prints the chosen git when some git can run and
         # none lies inside a directory passed as an argument; otherwise
         # prints the refused path and exits 3 for a line break, 4 for a
@@ -419,30 +423,9 @@ runs:
           except OSError:
               sys.exit(1)
       run: |
-        # Validate the opt-in and check the sidecar path is free
+        # Find the trusted git, validate the opt-in and check the
+        # sidecar path is free
         set -euo pipefail
-        case "$DEPENDENCY_CHANGE" in
-          true) ;;
-          false) echo 'enabled=false' >> "$GITHUB_OUTPUT"; exit 0 ;;
-          *) echo "::error::dependency_change must be 'true' or 'false' ❌"
-             exit 1 ;;
-        esac
-        {
-          echo 'enabled=true'
-          echo "sidecar=$SIDECAR"
-        } >> "$GITHUB_OUTPUT"
-        # setup-python prepends its bin directory to PATH last, so the
-        # runner puts it ahead of any directory a caller added. Verify
-        # rather than assume: this step sees the detector's PATH.
-        trusted=''
-        case "$INTERPRETER" in
-          /*) trusted="${INTERPRETER%/*}/python3" ;;
-        esac
-        # Check each lookup exactly as the detector's lookup returns
-        # it. A PATH entry can hold a line break; stripping it would
-        # validate a different file from the one the detector runs, so
-        # refuse such a lookup and escape it only for display.
-        found="$(command -v python3 || true)"
         has_line_break() {
           case "$1" in *$'\r'*|*$'\n'*) return 0 ;; esac
           return 1
@@ -451,10 +434,11 @@ runs:
           local text="${1//$'\r'/\\r}"
           printf '%s' "${text//$'\n'/\\n}"
         }
-        # The detector runs the git this check approves. A caller's step
-        # can put a checkout directory such as .venv/bin on PATH, where
-        # the change under review could supply a git. Check every git
-        # candidate with the trusted interpreter, not a tool from PATH.
+        # The action runs only the git this check approves. A caller's
+        # step can put a checkout directory such as .venv/bin on PATH,
+        # where the change under review could supply a git. Check every
+        # git candidate with the trusted interpreter, not a tool from
+        # PATH.
         # Sets git_path to the approved git, or sets git_problem to why
         # git is refused and returns 1.
         check_git() {
@@ -481,8 +465,40 @@ runs:
           esac
           return 1
         }
+        # Every run reports the approved git, or why there is none,
+        # whatever dependency_change says.
         git_path=''
         git_problem=''
+        case "$INTERPRETER" in
+          /*) check_git || true ;;
+          *) git_problem='setup-python gave no absolute interpreter' ;;
+        esac
+        {
+          printf 'trusted_git=%s\n' "$git_path"
+          printf 'git_problem=%s\n' "$git_problem"
+        } >> "$GITHUB_OUTPUT"
+        case "$DEPENDENCY_CHANGE" in
+          true) ;;
+          false) echo 'enabled=false' >> "$GITHUB_OUTPUT"; exit 0 ;;
+          *) echo "::error::dependency_change must be 'true' or 'false' ❌"
+             exit 1 ;;
+        esac
+        {
+          echo 'enabled=true'
+          echo "sidecar=$SIDECAR"
+        } >> "$GITHUB_OUTPUT"
+        # setup-python prepends its bin directory to PATH last, so the
+        # runner puts it ahead of any directory a caller added. Verify
+        # rather than assume: this step sees the detector's PATH.
+        trusted=''
+        case "$INTERPRETER" in
+          /*) trusted="${INTERPRETER%/*}/python3" ;;
+        esac
+        # Check each lookup exactly as the detector's lookup returns
+        # it. A PATH entry can hold a line break; stripping it would
+        # validate a different file from the one the detector runs, so
+        # refuse such a lookup and escape it only for display.
+        found="$(command -v python3 || true)"
         reason=''
         if [ -e "$SIDECAR" ] || [ -L "$SIDECAR" ]; then
           reason="unresolved: ${SIDECAR} already exists; detection skipped"
@@ -496,7 +512,7 @@ runs:
           reason='unresolved: python3 is not the trusted interpreter;'
           reason="$reason detection skipped"
           echo "::warning::${reason} (python3 resolves to '${found}')"
-        elif ! check_git; then
+        elif [ -z "$git_path" ]; then
           reason="unresolved: ${git_problem}; detection skipped"
           echo "::warning::${reason}"
         fi
@@ -602,6 +618,11 @@ runs:
         INTERPRETER: "${{ steps.setup-python.outputs.python-path }}"
         # An action-owned cache, not one a caller variable points at
         UV_CACHE_DIR: "${{ runner.temp }}/repository-metadata-action/cache"
+        # hatch-vcs asks setuptools-scm for a version, and setuptools-scm
+        # runs git from PATH unless given one. Nothing reads the version.
+        # hatch-vcs passes no distribution name, so the per-package
+        # SETUPTOOLS_SCM_PRETEND_VERSION_FOR_* form has no effect.
+        SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.0'
       run: |
         # Install into the trusted interpreter only
         set -euo pipefail
@@ -630,7 +651,8 @@ runs:
         ARTIFACT_UPLOAD: ${{ inputs.artifact_upload }}
         ARTIFACT_FORMATS: ${{ inputs.artifact_formats }}
         CHANGE_DETECTION: ${{ inputs.change_detection }}
-        GIT_FETCH_DEPTH: ${{ inputs.git_fetch_depth }}
+        # Exported as GIT_FETCH_DEPTH once the caller's GIT_* are gone
+        FETCH_DEPTH_INPUT: ${{ inputs.git_fetch_depth }}
         GERRIT_SUMMARY: ${{ inputs.gerrit_summary }}
         FILES_SUMMARY: ${{ inputs.files_summary }}
         GERRIT_INCLUDE_COMMENT: ${{ inputs.gerrit_include_comment }}
@@ -640,16 +662,33 @@ runs:
         PR_HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         INTERPRETER: "${{ steps.setup-python.outputs.python-path }}"
+        TRUSTED_GIT: ${{ steps.dependency-change-setup.outputs.trusted_git }}
+        # yamllint disable-line rule:line-length
+        TRUSTED_GIT_PROBLEM: ${{ steps.dependency-change-setup.outputs.git_problem }}
       run: |
         # Isolated mode ignores PYTHON* settings and the working
         # directory; src imports from the package installed above.
         # PYTHONEXECUTABLE and __PYVENV_LAUNCHER__ still redirect the
         # interpreter on macOS under -I, so drop the caller's copies.
+        # GIT_EXEC_PATH, GIT_DIR, GIT_CONFIG_* and the like redirect
+        # even the trusted git, and GIT_PYTHON_* would pick another
+        # one, so drop every GIT_* too. GITHUB_* does not match GIT_*.
         while IFS= read -r name; do
           case "$name" in
-            PYTHON*|__PYVENV_LAUNCHER__) unset "$name" ;;
+            PYTHON*|__PYVENV_LAUNCHER__|GIT_*) unset "$name" ;;
           esac
         done < <(compgen -e)
+        export GIT_FETCH_DEPTH="$FETCH_DEPTH_INPUT"
+        # In its quiet and warn modes, GitPython falls back to a PATH
+        # lookup of git when the git it was given fails to start.
+        export GIT_PYTHON_REFRESH=error
+        if [ -n "$TRUSTED_GIT" ]; then
+          export GIT_PYTHON_GIT_EXECUTABLE="$TRUSTED_GIT"
+        else
+          # src.main then imports no GitPython, which runs git on import
+          : "${TRUSTED_GIT_PROBLEM:=the git check gave no result}"
+          export TRUSTED_GIT_PROBLEM
+        fi
         "$INTERPRETER" -I -m src.main
 
     - name: 'Upload metadata artifact'
