@@ -77,20 +77,17 @@ def run_refusal(tmp_path: Path, extra: dict[str, str]) -> CompletedProcess[str]:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="refusal step not yet added")
 def test_refusal_runs_before_setup_uv() -> None:
     """The refusal must come before setup-uv reads the variable."""
     assert step_index(STEP_NAME) < step_index("Install uv")
 
 
-@pytest.mark.xfail(strict=True, reason="refusal step not yet added")
 def test_unset_variable_passes(tmp_path: Path) -> None:
     """Control: without UV_NO_MODIFY_PATH the step succeeds."""
     result = run_refusal(tmp_path, {})
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.xfail(strict=True, reason="refusal step not yet added")
 @pytest.mark.parametrize(
     ("name", "value"),
     [
@@ -107,7 +104,6 @@ def test_inherited_variable_is_refused(tmp_path: Path, name: str, value: str) ->
     assert name in result.stdout
 
 
-@pytest.mark.xfail(strict=True, reason="refusal step not yet added")
 def test_inherited_bash_env_cannot_unset_variable(tmp_path: Path) -> None:
     """A caller's BASH_ENV must not unset the variable before the check."""
     startup = tmp_path / "startup.sh"
@@ -117,7 +113,6 @@ def test_inherited_bash_env_cannot_unset_variable(tmp_path: Path) -> None:
     assert "UV_NO_MODIFY_PATH" in result.stdout
 
 
-@pytest.mark.xfail(strict=True, reason="function imports not yet disabled")
 @pytest.mark.parametrize(
     ("function", "body"),
     [("compgen", "() { return 0; }"), ("read", "() { return 1; }")],
