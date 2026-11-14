@@ -586,6 +586,31 @@ runs:
         } >> "$GITHUB_OUTPUT"
         echo "Dependency change: $REASON" | tee -a "$GITHUB_STEP_SUMMARY"
 
+    # setup-uv skips its PATH changes when UV_NO_MODIFY_PATH is set,
+    # in any value, so the caller's PATH would keep choosing what runs.
+    # A composite action cannot unset a variable its caller exports, so
+    # refuse one before setup-uv sees it. Node on Windows matches
+    # environment names in any case, so this does too. Bash sources an
+    # inherited BASH_ENV before the script, which could unset the
+    # variable here while setup-uv still inherits it, so clear it. It
+    # also imports exported functions, which could shadow compgen or
+    # read, so run it with -p, which ignores both.
+    - name: 'Refuse an inherited UV_NO_MODIFY_PATH'
+      shell: bash --noprofile --norc -p -eo pipefail {0}
+      env:
+        BASH_ENV: ''
+      run: |
+        # Stop before setup-uv when the caller set UV_NO_MODIFY_PATH
+        set -euo pipefail
+        shopt -s nocasematch
+        while IFS= read -r name; do
+          case "$name" in
+            UV_NO_MODIFY_PATH)
+              echo "Error: unset $name before calling this action ❌"
+              exit 1 ;;
+          esac
+        done < <(compgen -e)
+
     # setup-uv's only uv call for these inputs is "uv python find",
     # whose result it executes. An invalid preference makes uv refuse
     # its arguments before any lookup; setup-uv then reports the
