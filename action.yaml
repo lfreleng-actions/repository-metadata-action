@@ -532,7 +532,7 @@ runs:
       id: dependency-change
       if: steps.dependency-change-setup.outputs.run == 'true'
       # yamllint disable-line rule:line-length
-      uses: lfreleng-actions/dependency-change-action@4f567fb056807220fb98264bcce0ad0cce77e3a2  # v0.2.0
+      uses: lfreleng-actions/dependency-change-action@9eb559c7768513c551f9649400a27fae257c9f17  # v0.3.0
       env:
         # The detector runs "python3 -I", but these still redirect the
         # interpreter on macOS under -I; empty values are ignored.
